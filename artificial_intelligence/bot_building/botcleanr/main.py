@@ -21,6 +21,13 @@ MOVE_DES = {
 }
 
 
+def debug(*args, **kwargs):
+    import sys
+
+    kwargs.setdefault('file', sys.stderr)
+    print(*args, **kwargs)
+
+
 class Board(object):
     _state = None
 

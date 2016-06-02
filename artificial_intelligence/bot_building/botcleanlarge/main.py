@@ -6,6 +6,7 @@ from operator import itemgetter
 Coord = namedtuple('Coord', 'y x')
 Delta = namedtuple('Delta', 'y x')
 Cell = namedtuple('Cell', 'y x value')
+Dimensions = namedtuple('Dimensions', 'y x')
 Quadrant = namedtuple('Quadrant', 'y_start y_end x_start x_end')
 
 MOVE_LEFT = Delta(0, -1)
@@ -21,11 +22,18 @@ MOVE_DES = {
 }
 
 
+def debug(*args, **kwargs):
+    import sys
+
+    kwargs.setdefault('file', sys.stderr)
+    print(*args, **kwargs)
+
+
 class Board(object):
     _state = None
 
-    def __init__(self, grid_size, state):
-        self.grid_size = grid_size
+    def __init__(self, dimensions, state):
+        self.dimensions = dimensions
         self.state = state
 
     @property
@@ -63,9 +71,11 @@ class Board(object):
         if not isinstance(coord, Coord):
             return False
 
-        for axis in (coord.x, coord.y):
-            if axis < 0 or axis >= self.grid_size:
-                return False
+        if coord.x < 0 or coord.x >= self.dimensions.x:
+            return False
+        if coord.y < 0 or coord.y >= self.dimensions.y:
+            return False
+
         return True
 
     def resolve_delta(self, delta, ref):
@@ -128,15 +138,19 @@ class Bot(object):
         for target in targets:
             target['priority_inverse'] = target['proximity'] * 100
             target['quadrants'] = []
-        grid_size = self.board.grid_size - 1
-        quadrant_size = grid_size // 2
+        dimensions = self.board.dimensions
+        y_min, x_min = 0, 0
+        y_max = dimensions.y - 1
+        x_max = dimensions.x - 1
+        y_mid = y_max // 2
+        x_mid = x_max // 2
         quadrant_boxes = {
-            'q1': Quadrant(0, quadrant_size, 0, quadrant_size),
-            'q2': Quadrant(0, quadrant_size, quadrant_size, grid_size),
-            'q3': Quadrant(quadrant_size, grid_size, quadrant_size, grid_size),
-            'q4': Quadrant(quadrant_size, grid_size, 0, quadrant_size),
+            'q1': Quadrant(y_min, y_mid, x_min, x_mid),
+            'q2': Quadrant(y_min, y_mid, x_mid, x_max),
+            'q3': Quadrant(y_mid, y_max, x_mid, x_max),
+            'q4': Quadrant(y_mid, y_max, x_min, x_mid),
         }
-
+        corner_coords = [Coord(y_min, x_min), Coord(y_min, x_max), Coord(y_max, x_max), Coord(y_max, x_min)]
         targets_by_quadrant = {
             'q1': [],
             'q2': [],
@@ -192,7 +206,7 @@ class Bot(object):
                     matching_quadrants += 1
 
             corner_modifier = 0
-            corner_coords = [Coord(0, 0), Coord(grid_size, 0), Coord(grid_size, grid_size), Coord(0, grid_size)]
+
             target_coord = Coord(target['cell'].x, target['cell'].y)
             if target_coord in corner_coords:
                 corner_modifier = 1 * corner_coefficient
@@ -238,15 +252,16 @@ class NoValidMove(Exception):
     pass
 
 
-def next_move(posr, posc, grid):
-    grid_size = len(grid.split('\n') if isinstance(grid, str) else grid)
-    board = Board(grid_size, grid)
+def next_move(pos_y, pos_x, dim_y, dim_x, grid):
+    position = Coord(pos_y, pos_x)
+    dimensions = Dimensions(dim_y, dim_x)
+    board = Board(dimensions, grid)
     bot = Bot(board, 'b')
 
     if not board.find('b'):
         return 'CLEAN'
 
-    board.set_cell(Coord(posr, posc), 'b')
+    board.set_cell(position, 'b')
 
     move = bot.suggest_move('d')
 
@@ -254,14 +269,14 @@ def next_move(posr, posc, grid):
 
 
 def parse_input(grid):
-    bot_pos = Coord(*map(int, grid.pop(0).split()))
-    grid_size = len(grid.split('\n') if isinstance(grid, str) else grid)
-    return bot_pos, grid_size, '\n'.join(grid)
+    position = Coord(*map(int, grid.pop(0).split()))
+    dimension = Dimensions(*map(int, grid.pop(0).split()))
+    return position, dimension, '\n'.join(grid)
 
 
 def main():
-    bot_pos, grid_size, grid = parse_input([line.strip() for line in input()])
-    print(next_move(bot_pos.y, bot_pos.x, grid))
+    position, dimension, grid = parse_input([line.strip() for line in input()])
+    print(next_move(position.y, position.x, dimension.y, dimension.x, grid))
 
 
 if __name__ == '__main__':

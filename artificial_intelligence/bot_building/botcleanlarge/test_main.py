@@ -4,24 +4,24 @@ from textwrap import dedent
 import pytest
 
 from .main import Board, Coord, Cell, Delta, MOVE_LEFT, MOVE_RIGHT, MOVE_UP, MOVE_DOWN, InvalidMove, NoValidMove, Bot, \
-    next_move
+    next_move, Dimensions
 
 
 @pytest.fixture
 def board():
-    grid_size = 3
+    dimensions = Dimensions(3, 3)
     grid = dedent("""
         ---
         -m-
         p--
     """[1:]).rstrip()
 
-    return Board(grid_size, grid)
+    return Board(dimensions, grid)
 
 
 @pytest.fixture
 def board2():
-    grid_size = 5
+    dimensions = Dimensions(5, 5)
     grid = dedent("""
         b---d
         -d--d
@@ -30,7 +30,7 @@ def board2():
         ----d
     """[1:]).rstrip()
 
-    return Board(grid_size, grid)
+    return Board(dimensions, grid)
 
 
 def test_pformat_board_format(board):
@@ -148,12 +148,12 @@ def test_can_find_all(board2):
     (Cell(y=4, x=4, value='d'), 8),
 ])
 def test_it_can_calculate_proximity(board2, target, expected):
-    bot = Bot(board2, 'b')
+    bot = Bot(board2)
     assert bot.get_proximity(target) == expected
 
 
 def test_it_can_choose_a_target(board2):
-    bot = Bot(board2, 'b')
+    bot = Bot(board2)
     targets = [
         Cell(y=0, x=4, value='d'),
         Cell(y=1, x=1, value='d'),
@@ -167,7 +167,7 @@ def test_it_can_choose_a_target(board2):
 
 
 def test_it_prefers_a_target_in_its_quadrant_0():
-    grid_size = 5
+    dimensions = Dimensions(5, 5)
     grid = dedent("""
         ----d
         -----
@@ -176,14 +176,14 @@ def test_it_prefers_a_target_in_its_quadrant_0():
         dd--d
     """[1:]).rstrip()
 
-    board = Board(grid_size, grid)
-    bot = Bot(board, 'b')
+    board = Board(dimensions, grid)
+    bot = Bot(board)
     targets = board.findall('d')
     assert bot.choose_target(targets) == Cell(2, 3, 'd')
 
 
 def test_it_prefers_a_target_in_its_quadrant_1():
-    grid_size = 5
+    dimensions = Dimensions(5, 5)
     grid = dedent("""
         ----d
         -----
@@ -192,8 +192,8 @@ def test_it_prefers_a_target_in_its_quadrant_1():
         dd--d
     """[1:]).rstrip()
 
-    board = Board(grid_size, grid)
-    bot = Bot(board, 'b')
+    board = Board(dimensions, grid)
+    bot = Bot(board)
     targets = board.findall('d')
     assert bot.choose_target(targets) == Cell(0, 4, 'd')
 
@@ -207,7 +207,7 @@ def test_it_returns_next_move():
         dd--d
     """[1:]).rstrip()
 
-    assert next_move(2, 3, grid) == 'UP'
+    assert next_move(2, 3, 5, 5, grid) == 'UP'
 
 
 def test_it_prefers_corners():
@@ -219,7 +219,7 @@ def test_it_prefers_corners():
         dd--d
     """[1:]).rstrip()
 
-    assert next_move(3, 4, grid) == 'DOWN'
+    assert next_move(3, 4, 5, 5, grid) == 'DOWN'
 
 
 def test_it_suggests_a_move(board2):
