@@ -1,3 +1,4 @@
+# coding=utf-8
 from __future__ import print_function
 from collections import namedtuple
 from fileinput import input
@@ -6,6 +7,7 @@ from operator import itemgetter
 Coord = namedtuple('Coord', 'y x')
 Delta = namedtuple('Delta', 'y x')
 Cell = namedtuple('Cell', 'y x value')
+Dimensions = namedtuple('Dimensions', 'y x')
 Quadrant = namedtuple('Quadrant', 'y_start y_end x_start x_end')
 
 MOVE_LEFT = Delta(0, -1)
@@ -21,18 +23,11 @@ MOVE_DES = {
 }
 
 
-def debug(*args, **kwargs):
-    import sys
-
-    kwargs.setdefault('file', sys.stderr)
-    print(*args, **kwargs)
-
-
 class Board(object):
     _state = None
 
-    def __init__(self, grid_size, state):
-        self.grid_size = grid_size
+    def __init__(self, dimensions, state):
+        self.dimensions = dimensions
         self.state = state
 
     @property
@@ -41,20 +36,24 @@ class Board(object):
 
     @state.setter
     def state(self, value):
-        self._state = [[char for char in line] for line in value.split('\n') if line]
+        self._state = [[Cell(y, x, char) for x, char in enumerate(row)] for y, row in enumerate(value.split('\n')) if
+                       row]
 
     def iter_state(self):
-        return (Cell(y, x, char) for y, row in enumerate(self.state) for x, char in enumerate(row))
+        return (cell for row in self.state for cell in row)
 
-    def find(self, needle):
-        if isinstance(needle, Cell):
-            return needle
+    def find(self, target):
+        if hasattr(target, 'x') and hasattr(target, 'y') and not self.is_valid_coord(target):
+            raise InvalidMove()
 
-        if isinstance(needle, Coord):
-            return Cell(needle.y, needle.x, self.state[needle.y][needle.x])
+        if isinstance(target, Cell):
+            return target
+
+        if isinstance(target, Coord):
+            return self.state[target.y][target.x]
 
         for cell in self.iter_state():
-            if cell.value == needle:
+            if cell.value == target:
                 return cell
 
         return None
@@ -62,71 +61,51 @@ class Board(object):
     def findall(self, value):
         return [cell for cell in self.iter_state() if cell.value == value]
 
-    def set_cell(self, needle, value):
-        needle_cell = self.find(needle)
-        self.state[needle_cell.y][needle_cell.x] = value
-
-    def is_valid_coord(self, coord):
-        if not isinstance(coord, Coord):
-            return False
-
-        for axis in (coord.x, coord.y):
-            if axis < 0 or axis >= self.grid_size:
-                return False
-        return True
-
-    def resolve_delta(self, delta, ref):
-        if not isinstance(delta, Delta):
-            return delta
-
-        ref_cell = self.find(ref)
-
-        coord = Coord(ref_cell.y + delta.y, ref_cell.x + delta.x)
-
-        if not self.is_valid_coord(coord):
+    def set_cell(self, target, value):
+        if not self.is_valid_coord(target):
             raise InvalidMove()
 
-        return coord
+        target_cell = self.find(target)
+        self.state[target_cell.y][target_cell.x] = Cell(target_cell.y, target_cell.x, value)
 
-    def find_delta(self, char, target):
-        char_cell, target_cell = self.find(char), self.find(target)
+    def is_valid_coord(self, coord):
+        if not isinstance(coord, (Coord, Cell)):
+            return False
 
-        if char_cell is None or target_cell is None:
-            raise NoValidMove()
+        if coord.x < 0 or coord.x >= self.dimensions.x:
+            return False
+        if coord.y < 0 or coord.y >= self.dimensions.y:
+            return False
 
-        delta_y = target_cell.y - char_cell.y
-        delta_x = target_cell.x - char_cell.x
-        return Delta(delta_y, delta_x)
+        return True
 
-    def move(self, a, b):
+    def move(self, a, b, trail='-'):
         cell_a = self.find(a)
-        cell_b = self.find(self.resolve_delta(b, a))
+        cell_b = self.find(utils.resolve_delta(a, b))
 
-        self.set_cell(cell_a, '-')
+        self.set_cell(cell_a, trail)
         self.set_cell(cell_b, cell_a.value)
 
     def pformat(self):
-        return '\n'.join(''.join(row) for row in self.state if row)
+        return '\n'.join(''.join(cell.value for cell in row) for row in self.state)
 
 
 class Bot(object):
-    def __init__(self, board=None, char='b'):
+    def __init__(self, board, position=None, char='b'):
         self.board = board
         self._char = char
+
+        self.position = self.board.find(position) or self.char
 
     @property
     def char(self):
         return self.board.find(self._char)
 
-    @char.setter
-    def char(self, value):
-        self._char = value
-
     def get_proximity(self, target):
         char_cell = self.char
         target_cell = self.board.find(target)
 
-        delta = self.board.find_delta(char_cell, target_cell)
+        delta = utils.find_delta(char_cell, target_cell)
         return abs(delta.x) + abs(delta.y)
 
     def choose_target(self, targets):
@@ -135,15 +114,19 @@ class Bot(object):
         for target in targets:
             target['priority_inverse'] = target['proximity'] * 100
             target['quadrants'] = []
-        grid_size = self.board.grid_size - 1
-        quadrant_size = grid_size // 2
+        dimensions = self.board.dimensions
+        y_min, x_min = 0, 0
+        y_max = dimensions.y - 1
+        x_max = dimensions.x - 1
+        y_mid = y_max // 2
+        x_mid = x_max // 2
         quadrant_boxes = {
-            'q1': Quadrant(0, quadrant_size, 0, quadrant_size),
-            'q2': Quadrant(0, quadrant_size, quadrant_size, grid_size),
-            'q3': Quadrant(quadrant_size, grid_size, quadrant_size, grid_size),
-            'q4': Quadrant(quadrant_size, grid_size, 0, quadrant_size),
+            'q1': Quadrant(y_min, y_mid, x_min, x_mid),
+            'q2': Quadrant(y_min, y_mid, x_mid, x_max),
+            'q3': Quadrant(y_mid, y_max, x_mid, x_max),
+            'q4': Quadrant(y_mid, y_max, x_min, x_mid),
         }
-
+        corner_coords = [Coord(y_min, x_min), Coord(y_min, x_max), Coord(y_max, x_max), Coord(y_max, x_min)]
         targets_by_quadrant = {
             'q1': [],
             'q2': [],
@@ -177,7 +160,7 @@ class Bot(object):
         for target in targets:
             quadrant_priority = 1
             quadrant_coefficient = 10
-            matching_coeffient = 1
+            matching_coefficient = 1
             corner_coefficient = 1
 
             if not targets_by_quadrant['q1']:
@@ -199,18 +182,18 @@ class Bot(object):
                     matching_quadrants += 1
 
             corner_modifier = 0
-            corner_coords = [Coord(0, 0), Coord(grid_size, 0), Coord(grid_size, grid_size), Coord(0, grid_size)]
+
             target_coord = Coord(target['cell'].x, target['cell'].y)
             if target_coord in corner_coords:
                 corner_modifier = 1 * corner_coefficient
 
-            matching_quadrant_priority_multiplier = matching_quadrants * matching_coeffient + 1
+            matching_quadrant_priority_multiplier = matching_quadrants * matching_coefficient + 1
             target['matching_quadrant_priority_multiplier'] = matching_quadrant_priority_multiplier
 
             quadrant_priority_multiplier = int(quadrant_priority / len(target['quadrants']))
             target['quadrant_priority_multiplier'] = quadrant_priority_multiplier
 
-            target['corner_modifer'] = corner_modifier
+            target['corner_modifier'] = corner_modifier
 
             target['priority_inverse'] //= (quadrant_priority_multiplier + matching_quadrant_priority_multiplier)
             target['priority_inverse'] -= corner_modifier
@@ -218,12 +201,15 @@ class Bot(object):
         sorted_targets = sorted(targets, key=itemgetter('priority_inverse', 'proximity'))
         return sorted_targets[0]['cell']
 
-    def suggest_move(self, target, op='+'):
+    def suggest_move(self, target):
         char_cell = self.char
         target_cells = self.board.findall(target)
 
+        if not target_cells:
+            return None
+
         target_cell = self.choose_target(target_cells)
-        delta = self.board.find_delta(char_cell, target_cell)
+        delta = utils.find_delta(char_cell, target_cell)
 
         if delta.y > 0:
             return MOVE_DOWN
@@ -245,30 +231,73 @@ class NoValidMove(Exception):
     pass
 
 
-def next_move(posr, posc, grid):
-    grid_size = len(grid.split('\n') if isinstance(grid, str) else grid)
-    board = Board(grid_size, grid)
-    bot = Bot(board, 'b')
+# noinspection PyPep8Naming
+class utils(object):
+    @staticmethod
+    def find_delta(start, finish):
+        if start is None or finish is None:
+            raise NoValidMove()
 
-    if not board.find('b'):
+        delta_y = finish.y - start.y
+        delta_x = finish.x - start.x
+        return Delta(delta_y, delta_x)
+
+    @staticmethod
+    def resolve_delta(start, delta):
+        if isinstance(delta, (Coord, Cell)):
+            return delta
+
+        if not isinstance(delta, Delta):
+            raise TypeError()
+
+        coord = Coord(start.y + delta.y, start.x + delta.x)
+        return coord
+
+    @staticmethod
+    def setup(y, x, grid):
+        position = Coord(y, x)
+        grid_size = len(grid.split('\n'))
+        dimensions = Dimensions(grid_size, grid_size)
+        board = Board(dimensions, grid)
+        bot = Bot(board, position)
+
+        return board, bot
+
+    @staticmethod
+    def debug(*args, **kwargs):
+        import sys
+
+        kwargs.setdefault('file', sys.stderr)
+        if kwargs.pop('pformat', None):
+            from pprint import pformat
+
+            print(*map(pformat, args))
+        else:
+            print(*args, **kwargs)
+
+
+def parse_input(data):
+    position, grid = data.split('\n', 1)
+    y, x = map(int, position.split())
+    return y, x, grid
+
+
+def next_move(pos_y, pos_x, grid):
+    board, bot = utils.setup(pos_y, pos_x, grid)
+
+    if bot.position.value == 'd':
         return 'CLEAN'
 
-    board.set_cell(Coord(posr, posc), 'b')
-
     move = bot.suggest_move('d')
+    if not move:
+        move = bot.suggest_move('o')
 
     return MOVE_DES[move]
 
 
-def parse_input(grid):
-    bot_pos = Coord(*map(int, grid.pop(0).split()))
-    grid_size = len(grid.split('\n') if isinstance(grid, str) else grid)
-    return bot_pos, grid_size, '\n'.join(grid)
-
-
 def main():
-    bot_pos, grid_size, grid = parse_input([line.strip() for line in input()])
-    print(next_move(bot_pos.y, bot_pos.x, grid))
+    y, x, grid = parse_input('\n'.join(line.strip() for line in input()))
+    print(next_move(y, x, grid))
 
 
 if __name__ == '__main__':
