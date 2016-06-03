@@ -5,12 +5,17 @@ import pytest
 
 from .main import (
     Board, Coord, Cell, Delta, MOVE_LEFT, MOVE_RIGHT, MOVE_UP, MOVE_DOWN, InvalidMove, NoValidMove, Bot, next_move,
-    Dimensions, utils,
-    parse_input)
+    Dimensions, utils, parse_input, bot_factory
+)
 
 
 # FIXTURES
 # ============================================================================
+@pytest.fixture(autouse=True)
+def session_setup(monkeypatch):
+    monkeypatch.setenv('PY_TEST', 'DEBUG')
+
+
 @pytest.fixture
 def board1():
     dimensions = Dimensions(3, 3)
@@ -339,7 +344,7 @@ def test_it_prefers_a_target_in_its_quadrant_0():
         --dd-
         dd--d
     """[1:])[:-1]
-    board, bot = utils.setup(*parse_input(data))
+    board, bot = bot_factory(*parse_input(data))
 
     targets = board.findall('d')
     assert bot.choose_target(targets) == Cell(2, 3, 'd')
@@ -355,7 +360,7 @@ def test_it_prefers_a_target_in_its_quadrant_1():
         dd--d
     """[1:])[:-1]
 
-    board, bot = utils.setup(*parse_input(data))
+    board, bot = bot_factory(*parse_input(data))
     targets = board.findall('d')
     assert bot.choose_target(targets) == Cell(3, 3, 'd')
 
@@ -456,3 +461,42 @@ def test_it_prefers_to_not_traverse_the_edges_blindly():
     """[1:])[:-1]
 
     assert next_move(*parse_input(data)) == 'LEFT'
+
+
+def test_it_prefers_quadrant_corner():
+    data = dedent("""
+        2 3
+        -----
+        -----
+        --db-
+        --dd-
+        dd--d
+    """[1:])[:-1]
+
+    assert next_move(*parse_input(data)) == 'LEFT'
+
+
+def test_its_not_fanatical_about_quadrants():
+    data = dedent("""
+        0 1
+        -bddd
+        d----
+        d----
+        d----
+        d---d
+    """[1:])[:-1]
+
+    assert next_move(*parse_input(data)) == 'RIGHT'
+
+# test prefers to move diagonally on track
+def test_prefers_to_move_diagonally_on_track():
+    data = dedent("""
+        1 2
+        o---o
+        o-b-o
+        o--do
+        ooooo
+        ooooo
+    """[1:])[:-1]
+
+    assert next_move(*parse_input(data)) == 'RIGHT'

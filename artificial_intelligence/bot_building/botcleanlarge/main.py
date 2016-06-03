@@ -1,13 +1,19 @@
+# coding=utf-8
 from __future__ import print_function
+
+import os
+import sys
 from collections import namedtuple
 from fileinput import input
-from operator import itemgetter
+from fractions import Fraction
+from itertools import product
+from operator import itemgetter, attrgetter
+from pprint import pformat
 
 Coord = namedtuple('Coord', 'y x')
 Delta = namedtuple('Delta', 'y x')
 Cell = namedtuple('Cell', 'y x value')
 Dimensions = namedtuple('Dimensions', 'y x')
-Quadrant = namedtuple('Quadrant', 'y_start y_end x_start x_end')
 
 MOVE_LEFT = Delta(0, -1)
 MOVE_RIGHT = Delta(0, 1)
@@ -22,13 +28,6 @@ MOVE_DES = {
 }
 
 
-def debug(*args, **kwargs):
-    import sys
-
-    kwargs.setdefault('file', sys.stderr)
-    print(*args, **kwargs)
-
-
 class Board(object):
     _state = None
 
@@ -36,39 +35,71 @@ class Board(object):
         self.dimensions = dimensions
         self.state = state
 
+        y_min, x_min = 0, 0
+        y_max, x_max = dimensions.y, dimensions.x
+        y_mid = y_max // 2
+        x_mid = x_max // 2
+
+        self.quadrants = {
+            1: (tuple(range(y_min, y_mid)), tuple(range(x_min, x_mid))),
+            2: (tuple(range(y_min, y_mid)), tuple(range(x_mid, x_max))),
+            3: (tuple(range(y_mid, y_max)), tuple(range(x_mid, x_max))),
+            4: (tuple(range(y_mid, y_max)), tuple(range(x_min, x_mid))),
+        }
+        self.corners = (
+            self.find(Coord(y_min, x_min)),
+            self.find(Coord(y_min, x_max - 1)),
+            self.find(Coord(y_max - 1, x_max - 1)),
+            self.find(Coord(y_max - 1, x_min)),
+        )
+
     @property
     def state(self):
         return self._state
 
     @state.setter
     def state(self, value):
-        self._state = [[char for char in line] for line in value.split('\n') if line]
+        self._state = [[Cell(y, x, char) for x, char in enumerate(row)] for y, row in enumerate(value.split('\n')) if
+                       row]
 
-    def iter_state(self):
-        return (Cell(y, x, char) for y, row in enumerate(self.state) for x, char in enumerate(row))
+    def iter_cells(self):
+        return (cell for row in self.state for cell in row)
 
-    def find(self, needle):
-        if isinstance(needle, Cell):
-            return needle
+    def iter_cells_by_quadrant(self, quadrant):
+        quadrant_coords = self.quadrants[quadrant]
+        return (self.state[y][x] for y, x in product(*quadrant_coords))
 
-        if isinstance(needle, Coord):
-            return Cell(needle.y, needle.x, self.state[needle.y][needle.x])
+    def find(self, target):
+        if hasattr(target, 'x') and hasattr(target, 'y') and not self.is_valid_coord(target):
+            raise InvalidMove()
 
-        for cell in self.iter_state():
-            if cell.value == needle:
+        if isinstance(target, Cell):
+            return target
+
+        if isinstance(target, Coord):
+            return self.state[target.y][target.x]
+
+        for cell in self.iter_cells():
+            if cell.value == target:
                 return cell
 
         return None
 
     def findall(self, value):
-        return [cell for cell in self.iter_state() if cell.value == value]
+        return [cell for cell in self.iter_cells() if cell.value == value]
 
-    def set_cell(self, needle, value):
-        needle_cell = self.find(needle)
-        self.state[needle_cell.y][needle_cell.x] = value
+    def findall_in_quadrant(self, quadrant, value):
+        return [cell for cell in self.iter_cells_by_quadrant(quadrant) if cell.value == value]
+
+    def set_cell(self, target, value):
+        if not self.is_valid_coord(target):
+            raise InvalidMove()
+
+        target_cell = self.find(target)
+        self.state[target_cell.y][target_cell.x] = Cell(target_cell.y, target_cell.x, value)
 
     def is_valid_coord(self, coord):
-        if not isinstance(coord, Coord):
+        if not isinstance(coord, (Coord, Cell)):
             return False
 
         if coord.x < 0 or coord.x >= self.dimensions.x:
@@ -78,170 +109,216 @@ class Board(object):
 
         return True
 
-    def resolve_delta(self, delta, ref):
-        if not isinstance(delta, Delta):
-            return delta
-
-        ref_cell = self.find(ref)
-
-        coord = Coord(ref_cell.y + delta.y, ref_cell.x + delta.x)
-
-        if not self.is_valid_coord(coord):
-            raise InvalidMove()
-
-        return coord
-
-    def find_delta(self, char, target):
-        char_cell, target_cell = self.find(char), self.find(target)
-
-        if char_cell is None or target_cell is None:
-            raise NoValidMove()
-
-        delta_y = target_cell.y - char_cell.y
-        delta_x = target_cell.x - char_cell.x
-        return Delta(delta_y, delta_x)
-
-    def move(self, a, b):
+    def move(self, a, b, trail='-'):
         cell_a = self.find(a)
-        cell_b = self.find(self.resolve_delta(b, a))
+        cell_b = self.find(utils.resolve_delta(a, b))
 
-        self.set_cell(cell_a, '-')
+        self.set_cell(cell_a, trail)
         self.set_cell(cell_b, cell_a.value)
 
     def pformat(self):
-        return '\n'.join(''.join(row) for row in self.state if row)
+        return '\n'.join(''.join(cell.value for cell in row) for row in self.state)
 
 
 class Bot(object):
-    def __init__(self, board=None, char='b'):
+    def __init__(self, board, position=None, char='b'):
         self.board = board
-        self._char = char
+        self.char = char
+
+        self.position = self.board.find(position) or self.cell
 
     @property
-    def char(self):
-        return self.board.find(self._char)
+    def cell(self):
+        return self.board.find(self.char)
 
-    @char.setter
-    def char(self, value):
-        self._char = value
+    def prefer_proximity(self, target):
+        denominator = utils.find_distance(self.cell, target)
+        return Fraction(100, denominator)
 
-    def get_proximity(self, target):
-        char_cell = self.char
-        target_cell = self.board.find(target)
+    # noinspection PyMethodMayBeStatic
+    def prefer_current_quadrant(self, bot_quadrant, target_quadrant):
+        denominator = 1 if bot_quadrant == target_quadrant else 2
+        return Fraction(100, denominator)
 
-        delta = self.board.find_delta(char_cell, target_cell)
-        return abs(delta.x) + abs(delta.y)
-
-    def choose_target(self, targets):
-        targets = [{'cell': target, 'proximity': self.get_proximity(target)} for target in targets]
-
-        for target in targets:
-            target['priority_inverse'] = target['proximity'] * 100
-            target['quadrants'] = []
-        dimensions = self.board.dimensions
-        y_min, x_min = 0, 0
-        y_max = dimensions.y - 1
-        x_max = dimensions.x - 1
-        y_mid = y_max // 2
-        x_mid = x_max // 2
-        quadrant_boxes = {
-            'q1': Quadrant(y_min, y_mid, x_min, x_mid),
-            'q2': Quadrant(y_min, y_mid, x_mid, x_max),
-            'q3': Quadrant(y_mid, y_max, x_mid, x_max),
-            'q4': Quadrant(y_mid, y_max, x_min, x_mid),
+    # noinspection PyMethodMayBeStatic
+    def prefer_traverse_adjacent_quadrant(self, cleared_quadrants, target_quadrant):
+        quadrants = {
+            1: 2,
+            2: 2,
+            3: 2,
+            4: 2,
         }
-        corner_coords = [Coord(y_min, x_min), Coord(y_min, x_max), Coord(y_max, x_max), Coord(y_max, x_min)]
-        targets_by_quadrant = {
-            'q1': [],
-            'q2': [],
-            'q3': [],
-            'q4': [],
-        }
+        if 1 in cleared_quadrants or 3 in cleared_quadrants:
+            quadrants[2] = 1
+            quadrants[4] = 1
 
-        for quadrant_name, quadrant_box in quadrant_boxes.items():
-            for target in targets:
-                cell = target['cell']
-                if cell.y < quadrant_box.y_start or cell.y > quadrant_box.y_end:
-                    continue
-                if cell.x < quadrant_box.x_start or cell.x > quadrant_box.x_end:
-                    continue
-                target['quadrants'].append(quadrant_name)
-                targets_by_quadrant[quadrant_name].append(target)
+        if 2 in cleared_quadrants or 4 in cleared_quadrants:
+            quadrants[1] = 1
+            quadrants[3] = 1
 
-        char_cell = self.char
-        char_quadrants = []
+        denominator = quadrants[target_quadrant]
+        return Fraction(100, denominator)
 
-        for quadrant_name, quadrant_box in quadrant_boxes.items():
-            for target in [char_cell]:
-                cell = target
-                if cell.y < quadrant_box.y_start or cell.y > quadrant_box.y_end:
-                    continue
-                if cell.x < quadrant_box.x_start or cell.x > quadrant_box.x_end:
-                    continue
+    # noinspection PyMethodMayBeStatic
+    def prefer_corners(self, target, corners):
+        denominator = 1 if target in corners else 2
+        return Fraction(100, denominator)
 
-                char_quadrants.append(quadrant_name)
+    def prefer_get_on_track(self, target, track_cells):
+        bot_cell = self.cell
+        if bot_cell in track_cells:
+            return 0
 
-        for target in targets:
-            quadrant_priority = 1
-            quadrant_coefficient = 10
-            matching_coeffient = 1
-            corner_coefficient = 1
+        if target not in track_cells:
+            return 0
 
-            if not targets_by_quadrant['q1']:
-                if 'q2' in target['quadrants'] or 'q4' in target['quadrants']:
-                    quadrant_priority = quadrant_coefficient
-            if not targets_by_quadrant['q2']:
-                if 'q3' in target['quadrants'] or 'q1' in target['quadrants']:
-                    quadrant_priority = quadrant_coefficient
-            if not targets_by_quadrant['q3']:
-                if 'q4' in target['quadrants'] or 'q2' in target['quadrants']:
-                    quadrant_priority = quadrant_coefficient
-            if not targets_by_quadrant['q4']:
-                if 'q1' in target['quadrants'] or 'q3' in target['quadrants']:
-                    quadrant_priority = quadrant_coefficient
+        track_cells = [(track_cell, utils.find_distance(bot_cell, track_cell)) for track_cell in track_cells]
+        track_cells = sorted(track_cells, key=itemgetter(1))
 
-            matching_quadrants = 0
-            for target_quadrant in target['quadrants']:
-                if target_quadrant in char_quadrants:
-                    matching_quadrants += 1
+        for i, (track_cell, distance) in enumerate(track_cells):
+            if target == track_cell:
+                denominator = i + 1
+                return Fraction(100, denominator)
 
-            corner_modifier = 0
+    def prefer_stay_on_track(self, target, track_cells):
+        if self.cell not in track_cells:
+            return 0
+        index = track_cells.index(self.cell)
+        next_index = index + 1 if index + 1 < len(track_cells) else 0
+        denominator = 1 if track_cells[next_index] == target else 2
+        return Fraction(100, denominator)
 
-            target_coord = Coord(target['cell'].x, target['cell'].y)
-            if target_coord in corner_coords:
-                corner_modifier = 1 * corner_coefficient
+    def choose_target(self, targets, **kwargs):
+        kwargs.setdefault('proximity', 8)
+        kwargs.setdefault('current_quadrant', 8)
+        kwargs.setdefault('traverse_adjacent_quadrant', 8)
+        kwargs.setdefault('corners', 1)
+        kwargs.setdefault('on_track', 0)
 
-            matching_quadrant_priority_multiplier = matching_quadrants * matching_coeffient + 1
-            target['matching_quadrant_priority_multiplier'] = matching_quadrant_priority_multiplier
+        target_char = targets[0].value
+        bot_quadrant = utils.find_cell_quadrant(self.board, self.cell)
+        target_list = []
+        cleared_quadrants = [quadrant for quadrant in range(1, 5) if
+                             not list(self.board.findall_in_quadrant(quadrant, target_char))]
+        track_coords = [
+            Coord(1, 1), Coord(1, 2), Coord(1, 3), Coord(2, 3), Coord(3, 3), Coord(3, 2), Coord(3, 1), Coord(2, 1)
+        ]
+        track_cells = [self.board.find(coord) for coord in track_coords]
+        for cell in targets:
+            preferences = {}
+            target = {'cell': cell, 'preferences': preferences}
+            target_quadrant = utils.find_cell_quadrant(self.board, cell)
 
-            quadrant_priority_multiplier = int(quadrant_priority / len(target['quadrants']))
-            target['quadrant_priority_multiplier'] = quadrant_priority_multiplier
+            preferences['proximity'] = Preference(
+                'proximity',
+                self.prefer_proximity(cell),
+                kwargs
+            )
 
-            target['corner_modifer'] = corner_modifier
+            preferences['current_quadrant'] = Preference(
+                'current_quadrant',
+                self.prefer_current_quadrant(bot_quadrant, target_quadrant),
+                kwargs
+            )
 
-            target['priority_inverse'] //= (quadrant_priority_multiplier + matching_quadrant_priority_multiplier)
-            target['priority_inverse'] -= corner_modifier
+            preferences['traverse_adjacent_quadrant'] = Preference(
+                'traverse_adjacent_quadrant',
+                self.prefer_traverse_adjacent_quadrant(cleared_quadrants, target_quadrant),
+                kwargs
+            )
 
-        sorted_targets = sorted(targets, key=itemgetter('priority_inverse', 'proximity'))
-        return sorted_targets[0]['cell']
+            preferences['corners'] = Preference(
+                'corners',
+                self.prefer_corners(cell, self.board.corners),
+                kwargs
+            )
 
-    def suggest_move(self, target, op='+'):
-        char_cell = self.char
+            preferences['get_on_track'] = Preference(
+                'get_on_track',
+                self.prefer_get_on_track(cell, track_cells),
+                kwargs['on_track']
+            )
+
+            preferences['stay_on_track'] = Preference(
+                'stay_on_track',
+                self.prefer_stay_on_track(cell, track_cells),
+                kwargs['on_track']
+            )
+
+            target['priority'] = sum(preferences.values())
+            target_list.append(target)
+
+        target_list = sorted(target_list, key=itemgetter('priority'), reverse=True)
+        debug_preferences(target_list)
+        return target_list[0]['cell']
+
+    def suggest_move(self, target, **kwargs):
+        bot_cell = self.cell
         target_cells = self.board.findall(target)
 
-        target_cell = self.choose_target(target_cells)
-        delta = self.board.find_delta(char_cell, target_cell)
+        if not target_cells:
+            return None
 
-        if delta.y > 0:
-            return MOVE_DOWN
-        if delta.y < 0:
-            return MOVE_UP
-        if delta.x > 0:
-            return MOVE_RIGHT
-        if delta.x < 0:
-            return MOVE_LEFT
+        target_cell = self.choose_target(target_cells, **kwargs)
+        delta = utils.find_delta(bot_cell, target_cell)
+
+        bot_quadrant = utils.find_cell_quadrant(self.board, self.cell)
+
+        if bot_quadrant == 1:
+            if delta.x > 0:
+                return MOVE_RIGHT
+            if delta.y < 0:
+                return MOVE_UP
+            if delta.x < 0:
+                return MOVE_LEFT
+            if delta.y > 0:
+                return MOVE_DOWN
+        if bot_quadrant == 2:
+            if delta.y > 0:
+                return MOVE_DOWN
+            if delta.x > 0:
+                return MOVE_RIGHT
+            if delta.y < 0:
+                return MOVE_UP
+            if delta.x < 0:
+                return MOVE_LEFT
+        if bot_quadrant == 3:
+            if delta.x < 0:
+                return MOVE_LEFT
+            if delta.y > 0:
+                return MOVE_DOWN
+            if delta.x > 0:
+                return MOVE_RIGHT
+            if delta.y < 0:
+                return MOVE_UP
+        if bot_quadrant == 4:
+            if delta.y < 0:
+                return MOVE_UP
+            if delta.x < 0:
+                return MOVE_LEFT
+            if delta.y > 0:
+                return MOVE_DOWN
+            if delta.x > 0:
+                return MOVE_RIGHT
 
         raise NoValidMove()
+
+
+class Preference(object):
+    def __init__(self, name, score, weight):
+        self.name = name
+        self.score = score
+        self.weight = weight[name] if isinstance(weight, dict) else weight
+
+    @property
+    def product(self):
+        return int(self.score * self.weight)
+
+    def __radd__(self, other):
+        return self.product + (other.product if isinstance(other, self.__class__) else other)
+
+    def __repr__(self):
+        return '{0.__class__.__name__[0]} {0.product:>6} {0.name}'.format(self)
 
 
 class InvalidMove(Exception):
@@ -252,31 +329,99 @@ class NoValidMove(Exception):
     pass
 
 
-def next_move(pos_y, pos_x, dim_y, dim_x, grid):
-    position = Coord(pos_y, pos_x)
-    dimensions = Dimensions(dim_y, dim_x)
-    board = Board(dimensions, grid)
-    bot = Bot(board, 'b')
+# noinspection PyPep8Naming
+class utils(object):
+    @staticmethod
+    def find_delta(start, finish):
+        if start is None or finish is None:
+            raise NoValidMove()
 
-    if not board.find('b'):
+        delta_y = finish.y - start.y
+        delta_x = finish.x - start.x
+        return Delta(delta_y, delta_x)
+
+    @staticmethod
+    def resolve_delta(start, delta):
+        if isinstance(delta, (Coord, Cell)):
+            return delta
+
+        if not isinstance(delta, Delta):
+            raise TypeError()
+
+        coord = Coord(start.y + delta.y, start.x + delta.x)
+        return coord
+
+    @staticmethod
+    def find_distance(start, finish):
+        delta = finish if isinstance(finish, Delta) else utils.find_delta(start, finish)
+        return abs(delta.x) + abs(delta.y)
+
+    @staticmethod
+    def find_cell_quadrant(board, cell):
+        for name, (quad_y, quad_x) in board.quadrants.items():
+            if cell.y not in quad_y or cell.x not in quad_x:
+                continue
+            return name
+        return None
+
+    @staticmethod
+    def is_debug():
+        return os.environ.get('PY_TEST') == 'DEBUG'
+
+
+def debug(*args, **kwargs):
+    kwargs.setdefault('file', sys.stderr)
+
+    if kwargs.pop('pformat', True):
+        print(*map(pformat, args), **kwargs)
+    else:
+        print(*args, **kwargs)
+
+
+def debug_preferences(targets):
+    targets = reversed(targets) if utils.is_debug() else targets
+    for target in targets:
+        debug('\n{0[priority]:>9} {0[cell]}'.format(target), pformat=False)
+        debug(tuple(
+            preference
+            for preference
+            in sorted(target['preferences'].values(), key=attrgetter('product'), reverse=True)
+        ))
+
+
+def parse_input(data):
+    position, dimension, grid = data.split('\n', 2)
+    pos_y, pos_x = map(int, position.split())
+    dim_y, dim_x = map(int, dimension.split())
+    return pos_y, pos_x, dim_y, dim_x, grid
+
+
+def bot_factory(pos_y, pos_x, dim_y, dim_x, grid):
+    position = Coord(pos_y, pos_x, )
+    dimensions = Dimensions(dim_y, dim_x, )
+
+    board = Board(dimensions, grid)
+    bot = Bot(board, position)
+
+    return board, bot
+
+
+def next_move(pos_y, pos_x, dim_y, dim_x, grid):
+    board, bot = bot_factory(pos_y, pos_x, dim_y, dim_x, grid)
+
+    if bot.position.value == 'd':
         return 'CLEAN'
 
-    board.set_cell(position, 'b')
-
     move = bot.suggest_move('d')
+    if not move:
+        move = bot.suggest_move('o', on_track=2)
 
     return MOVE_DES[move]
 
 
-def parse_input(grid):
-    position = Coord(*map(int, grid.pop(0).split()))
-    dimension = Dimensions(*map(int, grid.pop(0).split()))
-    return position, dimension, '\n'.join(grid)
-
-
 def main():
-    position, dimension, grid = parse_input([line.strip() for line in input()])
-    print(next_move(position.y, position.x, dimension.y, dimension.x, grid))
+    pos_y, pos_x, dim_y, dim_x, grid = parse_input('\n'.join(line.strip() for line in input()))
+    print(next_move(pos_y, pos_x, dim_y, dim_x, grid))
 
 
 if __name__ == '__main__':

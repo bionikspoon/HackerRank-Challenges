@@ -1,17 +1,19 @@
 # coding=utf-8
 from __future__ import print_function
 
+import os
+import sys
 from collections import namedtuple
 from fileinput import input
 from fractions import Fraction
 from itertools import product
-from operator import itemgetter
+from operator import itemgetter, attrgetter
+from pprint import pformat
 
 Coord = namedtuple('Coord', 'y x')
 Delta = namedtuple('Delta', 'y x')
 Cell = namedtuple('Cell', 'y x value')
 Dimensions = namedtuple('Dimensions', 'y x')
-Quadrant = namedtuple('Quadrant', 'y_start y_end x_start x_end')
 
 MOVE_LEFT = Delta(0, -1)
 MOVE_RIGHT = Delta(0, 1)
@@ -118,12 +120,17 @@ class Board(object):
         return '\n'.join(''.join(cell.value for cell in row) for row in self.state)
 
 
+# noinspection PyMethodMayBeStatic
 class Bot(object):
     def __init__(self, board, position=None, char='b'):
         self.board = board
         self.char = char
 
         self.position = self.board.find(position) or self.cell
+
+        self.track = [self.board.find(coord) for coord in [
+            Coord(1, 1), Coord(1, 2), Coord(1, 3), Coord(2, 3), Coord(3, 3), Coord(3, 2), Coord(3, 1), Coord(2, 1)
+        ]]
 
     @property
     def cell(self):
@@ -176,7 +183,7 @@ class Bot(object):
                 return Fraction(100, denominator)
 
     def prefer_stay_on_track(self, target, track_cells):
-        if not self.cell in track_cells:
+        if self.cell not in track_cells:
             return 0
         index = track_cells.index(self.cell)
         next_index = index + 1 if index + 1 < len(track_cells) else 0
@@ -184,67 +191,63 @@ class Bot(object):
         return Fraction(100, denominator)
 
     def choose_target(self, targets, **kwargs):
-        kwargs.setdefault('proximity', 5)
+        kwargs.setdefault('proximity', 8)
         kwargs.setdefault('current_quadrant', 8)
         kwargs.setdefault('traverse_adjacent_quadrant', 8)
         kwargs.setdefault('corners', 1)
-        kwargs.setdefault('on_track', Fraction(1, 8))
+        kwargs.setdefault('on_track', 0)
 
         target_char = targets[0].value
         bot_quadrant = utils.find_cell_quadrant(self.board, self.cell)
         target_list = []
         cleared_quadrants = [quadrant for quadrant in range(1, 5) if
                              not list(self.board.findall_in_quadrant(quadrant, target_char))]
-        track_coords = [
-            Coord(1, 1), Coord(1, 2), Coord(1, 3), Coord(2, 3), Coord(3, 3), Coord(3, 2), Coord(3, 1), Coord(2, 1)
-        ]
-        track_cells = [self.board.find(coord) for coord in track_coords]
         for cell in targets:
             preferences = {}
             target = {'cell': cell, 'preferences': preferences}
             target_quadrant = utils.find_cell_quadrant(self.board, cell)
 
-            preferences['proximity'] = {
-                'mod': self.prefer_proximity(cell),
-                'weight': kwargs['proximity'],
-            }
+            preferences['proximity'] = Preference(
+                'proximity',
+                self.prefer_proximity(cell),
+                kwargs
+            )
 
-            preferences['current_quadrant'] = {
-                'mod': self.prefer_current_quadrant(bot_quadrant, target_quadrant),
-                'weight': kwargs['current_quadrant'],
-            }
+            preferences['current_quadrant'] = Preference(
+                'current_quadrant',
+                self.prefer_current_quadrant(bot_quadrant, target_quadrant),
+                kwargs
+            )
 
-            preferences['traverse_adjacent_quadrant'] = {
-                'mod': self.prefer_traverse_adjacent_quadrant(cleared_quadrants, target_quadrant),
-                'weight': kwargs['traverse_adjacent_quadrant'],
-            }
+            preferences['traverse_adjacent_quadrant'] = Preference(
+                'traverse_adjacent_quadrant',
+                self.prefer_traverse_adjacent_quadrant(cleared_quadrants, target_quadrant),
+                kwargs
+            )
 
-            preferences['corners'] = {
-                'mod': self.prefer_corners(cell, self.board.corners),
-                'weight': kwargs['corners'],
-            }
+            preferences['corners'] = Preference(
+                'corners',
+                self.prefer_corners(cell, self.board.corners),
+                kwargs
+            )
 
-            preferences['get_on_track'] = {
-                'mod': self.prefer_get_on_track(cell, track_cells),
-                'weight': kwargs['on_track'],
-            }
+            preferences['get_on_track'] = Preference(
+                'get_on_track',
+                self.prefer_get_on_track(cell, self.track),
+                kwargs['on_track']
+            )
 
-            preferences['stay_on_track'] = {
-                'mod': self.prefer_stay_on_track(cell, track_cells),
-                'weight': kwargs['on_track'],
-            }
+            preferences['stay_on_track'] = Preference(
+                'stay_on_track',
+                self.prefer_stay_on_track(cell, self.track),
+                kwargs['on_track']
+            )
 
-            for preference in preferences.values():
-                preference['product'] = int(preference['mod'] * preference['weight'])
-
-            target['priority'] = sum(preference['product'] for preference in preferences.values())
+            target['priority'] = sum(preferences.values())
             target_list.append(target)
 
         target_list = sorted(target_list, key=itemgetter('priority'), reverse=True)
-        # for target in target_list[:]:
-        #     debug(target['cell'])
-        #     debug(target['priority'])
-        #     debug({k: v['product'] for k, v in target['preferences'].items()})
+        debug_preferences(target_list)
         return target_list[0]['cell']
 
     def suggest_move(self, target, **kwargs):
@@ -257,46 +260,44 @@ class Bot(object):
         target_cell = self.choose_target(target_cells, **kwargs)
         delta = utils.find_delta(bot_cell, target_cell)
 
-        bot_quadrant = utils.find_cell_quadrant(self.board, self.cell)
+        track_coords = (Coord(y=cell.y, x=cell.x) for cell in self.track)
 
-        if bot_quadrant == 1:
-            if delta.x > 0:
-                return MOVE_RIGHT
-            if delta.y < 0:
-                return MOVE_UP
-            if delta.x < 0:
-                return MOVE_LEFT
-            if delta.y > 0:
-                return MOVE_DOWN
-        if bot_quadrant == 2:
-            if delta.y > 0:
-                return MOVE_DOWN
-            if delta.x > 0:
-                return MOVE_RIGHT
-            if delta.y < 0:
-                return MOVE_UP
-            if delta.x < 0:
-                return MOVE_LEFT
-        if bot_quadrant == 3:
-            if delta.x < 0:
-                return MOVE_LEFT
-            if delta.y > 0:
-                return MOVE_DOWN
-            if delta.x > 0:
-                return MOVE_RIGHT
-            if delta.y < 0:
-                return MOVE_UP
-        if bot_quadrant == 4:
-            if delta.y < 0:
-                return MOVE_UP
-            if delta.x < 0:
-                return MOVE_LEFT
-            if delta.y > 0:
-                return MOVE_DOWN
-            if delta.x > 0:
-                return MOVE_RIGHT
+        if delta.x > 0 and utils.resolve_delta(bot_cell, MOVE_RIGHT) in track_coords:
+            return MOVE_RIGHT
+        if delta.x < 0 and utils.resolve_delta(bot_cell, MOVE_LEFT) in track_coords:
+            return MOVE_LEFT
+        if delta.y > 0 and utils.resolve_delta(bot_cell, MOVE_DOWN) in track_coords:
+            return MOVE_DOWN
+        if delta.y < 0 and utils.resolve_delta(bot_cell, MOVE_UP) in track_coords:
+            return MOVE_UP
+
+        if delta.x > 0:
+            return MOVE_RIGHT
+        if delta.x < 0:
+            return MOVE_LEFT
+        if delta.y > 0:
+            return MOVE_DOWN
+        if delta.y < 0:
+            return MOVE_UP
 
         raise NoValidMove()
+
+
+class Preference(object):
+    def __init__(self, name, score, weight):
+        self.name = name
+        self.score = score
+        self.weight = weight[name] if isinstance(weight, dict) else weight
+
+    @property
+    def product(self):
+        return int(self.score * self.weight)
+
+    def __radd__(self, other):
+        return self.product + (other.product if isinstance(other, self.__class__) else other)
+
+    def __repr__(self):
+        return '{0.__class__.__name__[0]} {0.product:>6} {0.name}'.format(self)
 
 
 class InvalidMove(Exception):
@@ -343,37 +344,48 @@ class utils(object):
         return None
 
     @staticmethod
-    def setup(y, x, grid):
-        position = Coord(y, x)
-        grid_size = len(grid.split('\n'))
-        dimensions = Dimensions(grid_size, grid_size)
-        board = Board(dimensions, grid)
-        bot = Bot(board, position)
-
-        return board, bot
+    def is_debug():
+        return os.environ.get('PY_TEST') == 'DEBUG'
 
 
 def debug(*args, **kwargs):
-    import sys
-
     kwargs.setdefault('file', sys.stderr)
 
     if kwargs.pop('pformat', True):
-        from pprint import pformat
-
-        print(*map(pformat, args))
+        print(*map(pformat, args), **kwargs)
     else:
         print(*args, **kwargs)
 
 
+def debug_preferences(targets):
+    targets = reversed(targets) if utils.is_debug() else targets
+    for target in targets:
+        debug('\n{0[priority]:>9} {0[cell]}'.format(target), pformat=False)
+        debug(tuple(
+            preference
+            for preference
+            in sorted(target['preferences'].values(), key=attrgetter('product'), reverse=True)
+        ))
+
+
+def bot_factory(pos_y, pos_x, grid):
+    position = Coord(pos_y, pos_x)
+    grid_size = len(grid.split('\n'))
+    dimensions = Dimensions(grid_size, grid_size)
+    board = Board(dimensions, grid)
+    bot = Bot(board, position)
+
+    return board, bot
+
+
 def parse_input(data):
     position, grid = data.split('\n', 1)
-    y, x = map(int, position.split())
-    return y, x, grid
+    pos_y, pos_x = map(int, position.split())
+    return pos_y, pos_x, grid
 
 
 def next_move(pos_y, pos_x, grid):
-    board, bot = utils.setup(pos_y, pos_x, grid)
+    board, bot = bot_factory(pos_y, pos_x, grid)
 
     if bot.position.value == 'd':
         return 'CLEAN'
@@ -385,9 +397,35 @@ def next_move(pos_y, pos_x, grid):
     return MOVE_DES[move]
 
 
+def get_prev_state(filename):
+    if not os.path.isfile(filename):
+        return None
+
+    with open(filename) as f:
+        return ''.join(f.readlines())
+
+
+def set_next_state(filename, state):
+    with open(filename, 'w') as f:
+        f.write(state)
+
+
+def merge_state(prev_state, next_state):
+    return ''.join(p if n == 'o' else n for p, n in zip(prev_state, next_state))
+
+
 def main():
-    y, x, grid = parse_input('\n'.join(line.strip() for line in input()))
-    print(next_move(y, x, grid))
+    data = '\n'.join(line.strip() for line in input())
+
+    filename = 'moves.txt'
+    prev_state = get_prev_state(filename)
+    next_state = merge_state(prev_state, data) if prev_state else data
+    set_next_state(filename, next_state)
+
+    debug(next_state, pformat=False)
+
+    pos_y, pos_x, grid = parse_input(next_state)
+    print(next_move(pos_y, pos_x, grid))
 
 
 if __name__ == '__main__':
