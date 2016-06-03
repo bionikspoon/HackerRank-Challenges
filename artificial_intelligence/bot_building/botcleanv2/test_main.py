@@ -81,10 +81,10 @@ def test_can_find_cell_by_coordinates(board1, coord, cell):
     assert board1.find(coord) == cell
 
 
-# Board.iter_state
+# Board.iter_cells
 # ============================================================================
 
-def test_can_iterate_state(board1):
+def test_can_iterate_cells(board1):
     expected = (
         Cell(y=0, x=0, value='-'),
         Cell(y=0, x=1, value='-'),
@@ -97,7 +97,48 @@ def test_can_iterate_state(board1):
         Cell(y=2, x=2, value='-')
     )
 
-    assert tuple(board1.iter_state()) == expected
+    assert tuple(board1.iter_cells()) == expected
+
+
+# Board.iter_cells_by_quadrant
+# ============================================================================
+@pytest.mark.parametrize('quadrant, expected', [
+    (1, [
+        Cell(y=0, x=0, value='b'),
+        Cell(y=0, x=1, value='-'),
+        Cell(y=1, x=0, value='-'),
+        Cell(y=1, x=1, value='d'),
+    ]),
+    (2, [
+        Cell(y=0, x=2, value='-'),
+        Cell(y=0, x=3, value='-'),
+        Cell(y=0, x=4, value='d'),
+        Cell(y=1, x=2, value='-'),
+        Cell(y=1, x=3, value='-'),
+        Cell(y=1, x=4, value='d'),
+    ]),
+    (3, [
+        Cell(y=2, x=2, value='d'),
+        Cell(y=2, x=3, value='d'),
+        Cell(y=2, x=4, value='-'),
+        Cell(y=3, x=2, value='d'),
+        Cell(y=3, x=3, value='-'),
+        Cell(y=3, x=4, value='-'),
+        Cell(y=4, x=2, value='-'),
+        Cell(y=4, x=3, value='-'),
+        Cell(y=4, x=4, value='d'),
+    ]),
+    (4, [
+        Cell(y=2, x=0, value='-'),
+        Cell(y=2, x=1, value='-'),
+        Cell(y=3, x=0, value='-'),
+        Cell(y=3, x=1, value='-'),
+        Cell(y=4, x=0, value='-'),
+        Cell(y=4, x=1, value='-'),
+    ]),
+])
+def test_can_iterate_cells_by_quadrant(board2, quadrant, expected):
+    assert list(board2.iter_cells_by_quadrant(quadrant)) == expected
 
 
 # Board.findall
@@ -112,6 +153,28 @@ def test_can_find_all(board2):
         Cell(y=3, x=2, value='d'),
         Cell(y=4, x=4, value='d'),
     ]
+
+
+# Board.findall_in_quadrant
+# ============================================================================
+@pytest.mark.parametrize('quadrant, expected', [
+    (1, [
+        Cell(y=1, x=1, value='d'),
+    ]),
+    (2, [
+        Cell(y=0, x=4, value='d'),
+        Cell(y=1, x=4, value='d'),
+    ]),
+    (3, [
+        Cell(y=2, x=2, value='d'),
+        Cell(y=2, x=3, value='d'),
+        Cell(y=3, x=2, value='d'),
+        Cell(y=4, x=4, value='d'),
+    ]),
+    (4, []),
+])
+def test_can_iterate_cells_by_quadrant(board2, quadrant, expected):
+    assert board2.findall_in_quadrant(quadrant, 'd') == expected
 
 
 # Board.set_cell
@@ -217,7 +280,7 @@ def test_it_resolves_delta_from_cell_to_cell():
     assert utils.resolve_delta(coord, delta) == Coord(2, 0)
 
 
-# Bot.get_proximity
+# utils.find_distance
 # ============================================================================
 
 @pytest.mark.parametrize('target,expected', [
@@ -231,7 +294,24 @@ def test_it_resolves_delta_from_cell_to_cell():
 ])
 def test_it_can_calculate_proximity(board2, target, expected):
     bot = Bot(board2)
-    assert bot.get_proximity(target) == expected
+    assert utils.find_distance(bot.cell, target) == expected
+
+
+# utils.find_distance
+# ============================================================================
+@pytest.mark.parametrize('coord, expected', [
+    (Coord(0, 0), 1),
+    (Coord(0, 1), 1),
+    (Coord(0, 2), 2),
+    (Coord(0, 3), 2),
+    (Coord(0, 4), 2),
+    (Coord(1, 1), 1),
+    (Coord(2, 2), 3),
+    (Coord(4, 4), 3),
+    (Coord(4, 1), 4),
+])
+def test_find_quadrants(board2, coord, expected):
+    assert utils.find_cell_quadrant(board2, coord) == expected
 
 
 # Bot.choose_target
@@ -277,14 +357,14 @@ def test_it_prefers_a_target_in_its_quadrant_1():
 
     board, bot = utils.setup(*parse_input(data))
     targets = board.findall('d')
-    assert bot.choose_target(targets) == Cell(0, 4, 'd')
+    assert bot.choose_target(targets) == Cell(3, 3, 'd')
 
 
 # Bot.suggest_move
 # ============================================================================
 def test_it_suggests_a_move(board2):
     bot = Bot(board2, 'b')
-    assert bot.suggest_move('d') == MOVE_DOWN
+    assert bot.suggest_move('d') == MOVE_RIGHT
 
 
 # parse_input
@@ -323,7 +403,7 @@ def test_it_returns_next_move():
         dd--d
     """[1:])[:-1]
 
-    assert next_move(*parse_input(data)) == 'UP'
+    assert next_move(*parse_input(data)) == 'DOWN'
 
 
 def test_it_prefers_corners():
@@ -365,7 +445,6 @@ def test_it_will_fallback_to_revealing_o():
     assert next_move(*parse_input(data)) == 'RIGHT'
 
 
-@pytest.mark.xfail
 def test_it_prefers_to_not_traverse_the_edges_blindly():
     data = dedent("""
         3 4
