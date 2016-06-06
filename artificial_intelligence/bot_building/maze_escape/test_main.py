@@ -1,12 +1,12 @@
 # coding=utf-8
 from itertools import chain
-from pprint import pprint
 from textwrap import dedent
 
 import pytest
 
-from .main import Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, MOVE, Cartesian, combine_input, rotate, \
-    PartialBoard
+from .main import (
+    Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, MOVE, Cartesian
+)
 
 
 # FIXTURES
@@ -82,6 +82,16 @@ def test_board_can_iterate_cells(board1):
         Cell(2, 0, '#'), Cell(2, 1, '-'), Cell(2, 2, 'b'), Cell(2, 3, '-'), Cell(2, 4, '#'),
         Cell(3, 0, 'e'), Cell(3, 1, '-'), Cell(3, 2, '-'), Cell(3, 3, '-'), Cell(3, 4, '#'),
         Cell(4, 0, '#'), Cell(4, 1, '#'), Cell(4, 2, '#'), Cell(4, 3, '#'), Cell(4, 4, '#'),
+    ]
+
+
+# Board.iter_box
+# ============================================================================
+def test_board_iter_box(board1):
+    assert list(board1.iter_box(Coord(1, 1), Dimensions(3, 3))) == [
+        Cell(1, 1, '-'), Cell(1, 2, '-'), Cell(1, 3, '-'),
+        Cell(2, 1, '-'), Cell(2, 2, 'b'), Cell(2, 3, '-'),
+        Cell(3, 1, '-'), Cell(3, 2, '-'), Cell(3, 3, '-'),
     ]
 
 
@@ -419,7 +429,7 @@ def test_delta_resolves_coord_from_start():
     assert delta.resolve(coord) == Coord(1, 5)
 
 
-# PartialBoard.init
+# Board.init
 # ============================================================================
 def test_partial_board_sets_bot_position():
     state = dedent("""
@@ -427,11 +437,12 @@ def test_partial_board_sets_bot_position():
         #--
         #--
     """)[1:-1]
-    board = PartialBoard(state, Dimensions(3, 3), bot_position=Coord(1, 1))
+    board = Board.from_str(state)
+    board.set(Coord(1, 1), 'b')
     assert board.find('b') == Cell(1, 1, 'b')
 
 
-# PartialBoard.from_str
+# Board.from_str
 # ============================================================================
 def test_partial_board_from_input_parses_prev_state():
     state = dedent("""
@@ -446,7 +457,7 @@ def test_partial_board_from_input_parses_prev_state():
         #--
         ###
     """)[1:-1]
-    board = PartialBoard.from_str(state)
+    board = Board.from_input(state)
 
     assert str(board) == expected
 
@@ -463,12 +474,12 @@ def test_partial_board_from_input_parses_next_style_state():
         #b-
         #--
     """)[1:-1]
-    board = PartialBoard.from_str(state)
+    board = Board.from_input(state)
 
     assert str(board) == expected
 
 
-# PartialBoard.with_move
+# Board.with_move
 # ============================================================================
 def test_partial_board_with_move_creates_a_board():
     state = dedent("""
@@ -481,7 +492,7 @@ def test_partial_board_with_move_creates_a_board():
         #b-
         #--
     """)[1:-1]
-    board = PartialBoard.with_move(state, Dimensions(3, 3))
+    board = Board.with_move(state)
 
     assert str(board) == expected
 
@@ -497,7 +508,7 @@ def test_partial_board_with_move_moves_bot():
         #--
         ###
     """)[1:-1]
-    board = PartialBoard.with_move(state, Dimensions(3, 3), direction='UP')
+    board = Board.with_move(state, direction='UP')
     assert str(board) == expected
 
 
@@ -512,11 +523,11 @@ def test_partial_board_with_move_rotate_and_moves_bot():
         --#
         ###
     """)[1:-1]
-    board = PartialBoard.with_move(state, Dimensions(3, 3), direction='RIGHT')
+    board = Board.with_move(state, direction='RIGHT')
     assert str(board) == expected
 
 
-# PartialBoard.rotate
+# Board.rotate
 # ============================================================================
 @pytest.mark.parametrize('direction, expected', [
     ('UP', dedent("""
@@ -546,7 +557,7 @@ def test_partial_board_rotate(direction, expected):
         456
         789
     """)[1:-1]
-    assert PartialBoard.rotate(state, direction) == expected
+    assert Board.rotate(state, direction) == expected
 
 
 @pytest.mark.parametrize('direction, expected', [
@@ -580,10 +591,10 @@ def test_partial_board_rotate_rectangle(direction, expected):
         ijkl
     """)[1:-1]
 
-    assert PartialBoard.rotate(state, direction) == expected
+    assert Board.rotate(state, direction) == expected
 
 
-# PartialBoard.merge
+# Board.merge
 # ============================================================================
 @pytest.mark.parametrize('directions, cell, expected', [
     (['LEFT'], Cell(1, 2, 'b'), dedent("""
@@ -624,14 +635,14 @@ def test_partial_board_pad_left(directions, cell, expected):
         ---
     """)[1:-1]
 
-    board = PartialBoard.from_str(state)
+    board = Board.from_input(state)
     board.pad(directions)
 
     assert str(board) == expected
     assert board.find('b') == cell
 
 
-# PartialBoard.merge
+# Board.merge
 # ============================================================================
 @pytest.mark.parametrize('prev_state, next_state, expected', [
     # CASE
@@ -702,8 +713,8 @@ def test_partial_board_pad_left(directions, cell, expected):
      ),
 ])
 def test_partial_board_merge_two_boards(prev_state, next_state, expected):
-    prev_board = PartialBoard.from_str(prev_state)
-    next_board = PartialBoard.from_str(next_state)
+    prev_board = Board.from_input(prev_state)
+    next_board = Board.from_input(next_state)
 
     prev_board.merge(next_board)
 
@@ -726,9 +737,32 @@ def test_bot_find_position():
         #--
         #--
         #--
+        #--
     """)[1:-1]
-    master = Board.from_str(master)
-    board = PartialBoard.from_str(state)
+    board = Board.from_input(state)
     bot = Bot(board)
-    bot.find_position(master)
-    assert False
+
+    assert bot.find_move_from_position(master) == 'RIGHT'
+
+
+# test bot find position
+def test_bot_next_move():
+    master = dedent("""
+        #######
+        #--#--#
+        #--#--#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
+    state = dedent("""
+        2
+        #--
+        #--
+        #--
+    """)[1:-1]
+    board = Board.from_input(state)
+    bot = Bot(board)
+
+    assert bot.next_move(master) == 'RIGHT'

@@ -55,14 +55,50 @@ class Board(object):
             raise GameWon()
 
     def move(self, direction):
+        direction = direction.strip()
         if direction not in self.op.keys():
+            print(direction)
             raise InvalidTarget('Direction not in UP LEFT RIGHT DOWN')
-
+        self.state = self.rotate(str(self), direction)
         pos_y, pos_x = self.find()
-        next_y, next_x = self.op[direction](pos_y, pos_x)
+        next_y, next_x = self.op['UP'](pos_y, pos_x)
 
         self.set(pos_y, pos_x, '-')
         self.set(next_y, next_x, 'b')
+
+    @staticmethod
+    def rotate(state, direction):
+        """
+        :param str state:
+        :param str direction:
+        :return: Rotated state
+        :rtype: str
+        """
+        state = [list(line) for line in state.split('\n')]
+        next_state = None
+
+        if direction == 'UP':
+            next_state = state
+        if direction == 'RIGHT':
+            next_state = reversed(list(zip(*state)))
+        if direction == 'DOWN':
+            next_state = [reversed(args) for args in reversed(state)]
+        if direction == 'LEFT':
+            next_state = [reversed(args) for args in zip(*state)]
+
+        if next_state is None:
+            raise InvalidTarget('Direction not in UP RIGHT DOWN LEFT')
+
+        return '\n'.join(''.join(line) for line in next_state)
+
+    def out(self):
+        pos_y, pos_x = self.find()
+        data = [
+            [self.state[pos_y - 1][pos_x - 1], self.state[pos_y - 1][pos_x - 0], self.state[pos_y - 1][pos_x + 1], ],
+            [self.state[pos_y - 0][pos_x - 1], self.state[pos_y - 0][pos_x - 0], self.state[pos_y - 0][pos_x + 1], ],
+            [self.state[pos_y + 1][pos_x - 1], self.state[pos_y + 1][pos_x - 0], self.state[pos_y + 0][pos_x + 1], ],
+        ]
+        return '\n'.join(''.join(row) for row in data)
 
     def __str__(self):
         return '\n'.join(''.join(row) for row in self.state)
@@ -105,7 +141,7 @@ def main():
 
         for move in range(200):
             try:
-                stdin, stdout, stderr = run(command, str(board))
+                stdin, stdout, stderr = run(command, board.out())
                 board.move(stdout)
             except GameWon:
                 break
@@ -114,6 +150,9 @@ def main():
                 break
             finally:
                 print()
+                if stderr:
+                    print('STDERR')
+                    print(stderr)
                 print('STDIN    STDOUT', stdout)
                 print(stdin)
                 moves.append({

@@ -1,10 +1,11 @@
 # coding=utf-8
+import os
+import sys
+from collections import defaultdict
 from copy import deepcopy
 from itertools import chain
-from operator import eq
-from pprint import pprint
-
-import sys
+from operator import eq, itemgetter
+from textwrap import dedent
 
 RAISE = 'RAISE'
 
@@ -12,27 +13,85 @@ RAISE = 'RAISE'
 class Board(object):
     _state = []
 
-    def __init__(self, state, dimensions):
-        """
-        :param str state:
-        :param Dimensions dimensions:
-        """
-        self.dimensions = dimensions
-
-        if isinstance(state, list):
-            self._state = state
-        if isinstance(state, str):
-            self.state = state
+    def __init__(self):
+        pass
 
     @classmethod
-    def from_str(cls, data):
+    def from_str(cls, state):
+        self = cls()
+        self.state = state
+
+        return self
+
+    @classmethod
+    def from_state(cls, state):
+        self = cls()
+        self._state = state
+        return self
+
+    @classmethod
+    def from_input(cls, data):
         """
+        Create a PartialBoard from input
+
         :param str data:
-        :rtype: Board
+        :rtype: PartialBoard
         """
-        lines = data.split('\n')
-        dimensions = Dimensions(len(lines), len(lines[0]))
-        return cls(data, dimensions)
+        data = data.strip().split('\n')
+        direction = None
+        if data[0] in ('UP', 'DOWN', 'RIGHT', 'LEFT'):
+            direction = data.pop(0)
+
+        _ = data.pop(0)
+
+        state = cls.to_string(data)
+
+        return cls.with_move(state, direction=direction)
+
+    @classmethod
+    def with_move(cls, state, direction=None):
+        """
+        Create a PartialBoard with initial move.
+
+        :param str state:
+        :param str direction:
+        :rtype: PartialBoard
+        """
+        if direction is None:
+            self = cls.from_str(state)
+            self.set(Coord(1, 1), 'b')
+            return self
+
+        state = cls.rotate(state, direction)
+        self = cls.from_str(state)
+        self.move('b', MOVE['UP'])
+
+        return self
+
+    @staticmethod
+    def rotate(state, direction):
+        """
+        :param str state:
+        :param str direction:
+        :return: Rotated state
+        :rtype: str
+        """
+        state = [list(line) for line in state.split('\n')]
+        next_state = None
+
+        if direction == 'UP':
+            next_state = state
+        if direction == 'RIGHT':
+            next_state = reversed(list(zip(*state)))
+        if direction == 'DOWN':
+            next_state = [reversed(args) for args in reversed(state)]
+        if direction == 'LEFT':
+            next_state = [reversed(args) for args in zip(*state)]
+
+        if next_state is None:
+            raise InvalidTarget('Direction not in UP RIGHT DOWN LEFT')
+
+        return '\n'.join(''.join(line) for line in next_state)
 
     @property
     def state(self):
@@ -46,17 +105,23 @@ class Board(object):
         self._state = [[Cell(y, x, char) for x, char in enumerate(row)]
                        for y, row in enumerate(value.split('\n')) if row]
 
+    @property
+    def dimensions(self):
+        state = self.state
+        return Dimensions(y=len(state), x=len(state[0]))
+
     def __iter__(self):
         return (cell for row in self.state for cell in row)
 
-    def iter_box(self, min_y, min_x, dimensions):
-        max_y, max_x = dimensions.y + min_y, dimensions.x + min_x
+    def iter_box(self, coord, dimensions):
+        min_y, min_x = coord.y, coord.x
+        max_y, max_x = dimensions.y + coord.y, dimensions.x + coord.x
         for y, row in enumerate(self.state):
-            if y < min_y or y > max_y:
+            if y < min_y or y >= max_y:
                 continue
 
             for x, cell in enumerate(row):
-                if x < min_x or x > max_x:
+                if x < min_x or x >= max_x:
                     continue
                 yield cell
 
@@ -130,7 +195,7 @@ class Board(object):
         # noinspection PyPep8Naming
         BoardClass = self.__class__
         state = deepcopy(self.state)
-        return BoardClass(state, self.dimensions)
+        return BoardClass.from_state(state)
 
     def move(self, start, end, trail='-'):
         """
@@ -162,84 +227,6 @@ class Board(object):
     def __str__(self):
         return self.to_string(self.state)
 
-
-class PartialBoard(Board):
-    def __init__(self, state, dimensions, bot_position=None):
-        """
-        :param str state:
-        :param Dimensions dimensions:
-        :param Coord bot_position:
-        """
-        super(PartialBoard, self).__init__(state, dimensions)
-        if bot_position:
-            self.set(bot_position, 'b')
-
-    @classmethod
-    def from_str(cls, data):
-        """
-        Create a PartialBoard from input
-
-        :param str data:
-        :rtype: PartialBoard
-        """
-        data = data.strip().split('\n')
-        direction = None
-        if data[0] in ('UP', 'DOWN', 'RIGHT', 'LEFT'):
-            direction = data.pop(0)
-
-        _ = data.pop(0)
-
-        dimensions = Dimensions(y=len(data), x=len(data[0]))
-        state = cls.to_string(data)
-
-        return cls.with_move(state, dimensions, direction=direction)
-
-    @classmethod
-    def with_move(cls, state, dimensions, direction=None):
-        """
-        Create a PartialBoard with initial move.
-
-        :param str state:
-        :param Dimensions dimensions:
-        :param str direction:
-        :rtype: PartialBoard
-        """
-        if direction is None:
-            return cls(state, dimensions, bot_position=Coord(1, 1))
-        state = cls.rotate(state, direction)
-
-        self = cls(state, dimensions)
-        self.dimensions.y, self.dimensions.x = len(self.state), len(self.state[0])
-
-        self.move('b', MOVE['UP'])
-
-        return self
-
-    @staticmethod
-    def rotate(state, direction):
-        """
-        :param str state:
-        :param str direction:
-        :return: Rotated state
-        :rtype: str
-        """
-        state = [list(line) for line in state.split('\n')]
-        next_state = None
-
-        if direction == 'UP':
-            next_state = state
-        if direction == 'RIGHT':
-            next_state = reversed(list(zip(*state)))
-        if direction == 'DOWN':
-            next_state = [reversed(args) for args in reversed(state)]
-        if direction == 'LEFT':
-            next_state = [reversed(args) for args in zip(*state)]
-
-        if next_state is None:
-            raise InvalidTarget('Direction not in UP RIGHT DOWN LEFT')
-
-        return '\n'.join(''.join(line) for line in next_state)
-
     def merge(self, other, target='b'):
         self_target = self.find(target)
         other_target = other.find(target)
@@ -261,15 +248,12 @@ class PartialBoard(Board):
         padding = [direction for directions in padding for direction in directions]
         self.pad(padding)
 
-        box = self.iter_box(
-            self_target.y - other_target.y,
-            self_target.x - other_target.x,
-            other.dimensions
-        )
+        start_coord = Coord(y=self_target.y - other_target.y, x=self_target.x - other_target.x)
+
+        box = self.iter_box(start_coord, other.dimensions)
         for self_cell, other_cell in zip(box, other):
             if self_cell.value == 'o':
                 self_cell.value = other_cell.value
-            print(self_cell, other_cell)
 
     def pad(self, directions):
         if not directions:
@@ -358,23 +342,44 @@ class Bot(object):
 
         return (bot for bot in (self.fork(direction) for direction in directions) if bot)
 
-    def find_position(self, master):
+    def find_move_from_position(self, master):
         board = self.board
-        matches = []
-        for cell in master.filter('-'):
-            box_y, box_x = cell.y - 1, cell.x - 1
-            for board_cell, master_cell in zip(board, master.iter_box(box_y, box_x, board.dimensions)):
-                if board_cell.value in 'bo':
-                    continue
+        matches = defaultdict(list)
+        orientation = {key: Board.from_str(Board.rotate(master, key))
+                       for key in ('UP', 'DOWN', 'LEFT', 'RIGHT')}
 
-                if board_cell.value != master_cell.value:
-                    print(board_cell, master_cell)
-                    break
+        moves = defaultdict(lambda: 1)
 
-                # print(board_cell, master_cell)
-            else:
-                matches.append(cell)
-        print(matches)
+        for direction, master in orientation.items():
+            for cell in master.filter('-'):
+                coord = Coord(cell.y - 1, cell.x - 1)
+                for board_cell, master_cell in zip(board, master.iter_box(coord, board.dimensions)):
+                    if board_cell.value in 'bo':
+                        continue
+
+                    if board_cell.value != master_cell.value:
+                        break
+
+                else:
+                    matches[direction].append(cell)
+
+        for direction, master in orientation.items():
+            for match in matches[direction]:
+                board = master.fork()
+                bot = Bot(board, position=match)
+                path = bot.find_path('e')
+                for i, move in enumerate(reversed(path)):
+                    moves[move] += i + (1 + i + len(path)) % 2 + 10 - len(path)
+
+        top_moves = [move for move, count in sorted(moves.items(), key=itemgetter(1), reverse=True)]
+        for top_move in top_moves + ['UP', 'RIGHT', 'DOWN', 'LEFT']:
+            delta = MOVE[top_move]
+            coord = delta.resolve(self.cell)
+            if not self.board.is_valid(coord):
+                continue
+            if self.board.find(coord).value == '#':
+                continue
+            return top_move
 
     def find_path(self, target):
         """
@@ -398,9 +403,11 @@ class Bot(object):
         path_finder = registry.get(target)
         return path_finder.uid.split(' ')[1:]
 
-    def next_move(self):
+    def next_move(self, master):
         """Get next move"""
-        return self.find_path('e')[0]
+        if self.board.find('e', None):
+            return self.find_path('e')[0]
+        return self.find_move_from_position(master)
 
     def __repr__(self):
         return '{0.__class__.__name__}(y={0.cell.y}, x={0.cell.x}, uid={0.uid!r})'.format(self)
@@ -514,83 +521,44 @@ MOVE = {
 }
 
 
-def parse_input(data):
-    data = data.strip().split('\n')
-    if data[0] in ('UP', 'DOWN', 'RIGHT', 'LEFT'):
-        direction = data.pop(0)
-        _ = data.pop(0)
+def get_prev_state(filename):
+    if not os.path.isfile(filename):
+        return None
 
-        state = list(map(list, rotate(data, direction)))
-        print(state)
-
-        y, x = [(y, x) for y, row in enumerate(state) for x, cell in enumerate(row) if cell == 'b'][0]
-        state[y][x] = '-'
-        state[y - 1][x] = 'b'
-    else:
-        _ = data.pop(0)
-        state = [list(row) for row in data]
-    return state
+    with open(filename) as f:
+        return ''.join(f.readlines())
 
 
-def combine_input(prev_state, next_state):
-    prev_state = parse_input(prev_state)
-    next_state = parse_input(next_state)
-
-    dim_y, dim_x = len(prev_state), len(prev_state[0])
-    bot = Coord(0, 0)
-    for y, row in enumerate(prev_state):
-        for x, cell in enumerate(row):
-            if cell == 'b':
-                bot = Coord(y, x)
-
-    if bot.y == 0:
-        dim_y += 1
-        bot.y += 1
-        prev_state.insert(0, ['o' for _ in range(dim_x)])
-    if bot.y == dim_y - 1:
-        dim_y += 1
-        prev_state.append(['o' for _ in range(dim_x)])
-        pass
-    if bot.x == 0:
-        dim_x += 1
-        bot.x += 1
-
-        for row in prev_state:
-            row.insert(0, 'o')
-    if bot.x == dim_x - 1:
-        dim_x += 1
-        for row in prev_state:
-            row.append('o')
-
-    for y, row in enumerate(next_state):
-        for x, next_cell in enumerate(row):
-            rel = Delta(y - 1, x - 1)
-            prev_cell = prev_state[bot.y + rel.y][bot.x + rel.x]
-            if prev_cell != 'o':
-                continue
-            prev_state[bot.y + rel.y][bot.x + rel.x] = next_cell
-
-    # state = [next_state.pop()] + prev_state
-
-    return '\n'.join(''.join(line) for line in prev_state)
-
-
-def rotate(data, direction):
-    if direction == 'UP':
-        return data
-    if direction == 'RIGHT':
-        return reversed([list(args) for args in zip(*data)])
-    if direction == 'DOWN':
-        return [list(reversed(args)) for args in reversed(data)]
-    if direction == 'LEFT':
-        return [list(reversed(args)) for args in zip(*data)]
+def set_next_state(filename, state):
+    with open(filename, 'w') as f:
+        f.write(state)
 
 
 def main():
+    master = dedent("""
+        #######
+        #--#--#
+        #--#--#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
+    filename = 'moves.txt'
+
+    prev_state = get_prev_state(filename)
     data = sys.stdin.read().rstrip()
-    board = Board.from_str(data)
+    if prev_state:
+        board = Board.from_input(prev_state)
+        board.merge(Board.from_input(data))
+    else:
+        board = Board.from_input(data)
     bot = Bot(board)
-    print(bot.next_move())
+    next_move = bot.next_move(master)
+
+    set_next_state(filename, '\n'.join((next_move, '1', str(board))))
+
+    print(next_move)
 
 
 if __name__ == '__main__':
