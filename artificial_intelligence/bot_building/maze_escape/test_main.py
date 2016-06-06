@@ -1,4 +1,5 @@
 # coding=utf-8
+from io import StringIO
 from itertools import chain
 from textwrap import dedent
 
@@ -447,7 +448,6 @@ def test_partial_board_sets_bot_position():
 def test_partial_board_from_input_parses_prev_state():
     state = dedent("""
         UP
-        2
         #--
         #b-
         ###
@@ -457,7 +457,9 @@ def test_partial_board_from_input_parses_prev_state():
         #--
         ###
     """)[1:-1]
-    board = Board.from_input(state)
+    with StringIO(state) as f:
+        board = Board.load(f)
+    # board = Board.from_input(state)
 
     assert str(board) == expected
 
@@ -483,6 +485,7 @@ def test_partial_board_from_input_parses_next_style_state():
 # ============================================================================
 def test_partial_board_with_move_creates_a_board():
     state = dedent("""
+        2
         #--
         #--
         #--
@@ -492,13 +495,15 @@ def test_partial_board_with_move_creates_a_board():
         #b-
         #--
     """)[1:-1]
-    board = Board.with_move(state)
+
+    board = Board.from_input(state)
 
     assert str(board) == expected
 
 
 def test_partial_board_with_move_moves_bot():
     state = dedent("""
+        UP
         #--
         #b-
         ###
@@ -508,12 +513,14 @@ def test_partial_board_with_move_moves_bot():
         #--
         ###
     """)[1:-1]
-    board = Board.with_move(state, direction='UP')
+    with StringIO(state) as f:
+        board = Board.load(f)
     assert str(board) == expected
 
 
 def test_partial_board_with_move_rotate_and_moves_bot():
     state = dedent("""
+        RIGHT
         #--
         #b-
         ###
@@ -523,7 +530,9 @@ def test_partial_board_with_move_rotate_and_moves_bot():
         --#
         ###
     """)[1:-1]
-    board = Board.with_move(state, direction='RIGHT')
+
+    with StringIO(state) as f:
+        board = Board.load(f)
     assert str(board) == expected
 
 
@@ -644,11 +653,10 @@ def test_partial_board_pad_left(directions, cell, expected):
 
 # Board.merge
 # ============================================================================
-@pytest.mark.parametrize('prev_state, next_state, expected', [
+@pytest.mark.parametrize('state, next_state, expected', [
     # CASE
     (dedent("""
             UP
-            2
             #--
             #b-
             ###
@@ -670,7 +678,6 @@ def test_partial_board_pad_left(directions, cell, expected):
     # CASE
     (dedent("""
             RIGHT
-            2
             ###
             #b-
             #--
@@ -692,7 +699,6 @@ def test_partial_board_pad_left(directions, cell, expected):
     # CASE
     (dedent("""
             LEFT
-            2
             #--
             eb-
             #--
@@ -712,13 +718,15 @@ def test_partial_board_pad_left(directions, cell, expected):
         """)[1:-1]
      ),
 ])
-def test_partial_board_merge_two_boards(prev_state, next_state, expected):
-    prev_board = Board.from_input(prev_state)
+def test_partial_board_merge_two_boards(state, next_state, expected):
+    with StringIO(state) as f:
+        board = Board.load(f)
+
     next_board = Board.from_input(next_state)
 
-    prev_board.merge(next_board)
+    board.merge(next_board)
 
-    assert str(prev_board) == expected
+    assert str(board) == expected
 
 
 # test bot find position

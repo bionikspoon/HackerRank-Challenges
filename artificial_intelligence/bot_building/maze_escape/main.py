@@ -11,10 +11,7 @@ RAISE = 'RAISE'
 
 
 class Board(object):
-    _state = []
-
-    def __init__(self):
-        pass
+    _state = NotImplemented
 
     @classmethod
     def from_str(cls, state):
@@ -38,31 +35,24 @@ class Board(object):
         :rtype: PartialBoard
         """
         data = data.strip().split('\n')
-        direction = None
-        if data[0] in ('UP', 'DOWN', 'RIGHT', 'LEFT'):
-            direction = data.pop(0)
 
         _ = data.pop(0)
 
-        state = cls.to_string(data)
+        state = '\n'.join(data)
 
-        return cls.with_move(state, direction=direction)
+        self = cls.from_str(state)
+        self.set(Coord(1, 1), 'b')
+        return self
 
     @classmethod
-    def with_move(cls, state, direction=None):
-        """
-        Create a PartialBoard with initial move.
+    def load(cls, f):
+        data = [line.strip() for line in f.readlines() if line]
+        direction = data.pop(0)
 
-        :param str state:
-        :param str direction:
-        :rtype: PartialBoard
-        """
-        if direction is None:
-            self = cls.from_str(state)
-            self.set(Coord(1, 1), 'b')
-            return self
-
-        state = cls.rotate(state, direction)
+        if direction not in MOVE.keys():
+            msg = 'Data not in %s' % ' '.join(MOVE.keys())
+            raise InvalidTarget(msg)
+        state = cls.rotate('\n'.join(data), direction)
         self = cls.from_str(state)
         self.move('b', MOVE['UP'])
 
@@ -89,7 +79,8 @@ class Board(object):
             next_state = [reversed(args) for args in zip(*state)]
 
         if next_state is None:
-            raise InvalidTarget('Direction not in UP RIGHT DOWN LEFT')
+            msg = 'Direction not in %s' % MOVE.keys()
+            raise InvalidTarget(msg)
 
         return '\n'.join(''.join(line) for line in next_state)
 
@@ -216,12 +207,6 @@ class Board(object):
 
     @staticmethod
     def to_string(state):
-        """
-        Convert state to string.
-
-        :param [list] state:
-        :rtype: str
-        """
         return '\n'.join(''.join(cell.value if hasattr(cell, 'value') else cell for cell in row) for row in state)
 
     def __str__(self):
@@ -318,7 +303,7 @@ class Bot(object):
     def fork(self, direction, board=None):
         """
         :param str direction:
-        :param Board board:
+        :param Board|None board:
         :return: A forked bot
         :rtype: Bot
         """
