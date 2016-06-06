@@ -5,9 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from .main import (
-    Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, MOVE, Cartesian
-)
+from .main import Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, Cartesian
 
 
 # FIXTURES
@@ -40,7 +38,7 @@ def board2():
     return Board.from_str(grid)
 
 
-# Board.init
+# Board.from_str
 # ============================================================================
 def test_board_has_initial_state(board2):
     assert board2.state[0][0] == Cell(0, 0, '#')
@@ -58,25 +56,87 @@ def test_board_state_property(board1):
     ]
 
 
-# Board.str
+# Board.from_state
 # ============================================================================
-def test_board_str_shows_board(board2):
-    grid = dedent("""
-        #######
-        #--#--#
-        #--#-b#
-        #--#--#
-        e-----#
-        #-----#
-        #######
+def test_board_from_state(board1):
+    state = [
+        [Cell(0, 0, '#'), Cell(0, 1, '#'), Cell(0, 2, '#'), Cell(0, 3, '#'), Cell(0, 4, '#')],
+        [Cell(1, 0, '#'), Cell(1, 1, '-'), Cell(1, 2, '-'), Cell(1, 3, '-'), Cell(1, 4, '#')],
+        [Cell(2, 0, '#'), Cell(2, 1, '-'), Cell(2, 2, 'b'), Cell(2, 3, '-'), Cell(2, 4, '#')],
+        [Cell(3, 0, 'e'), Cell(3, 1, '-'), Cell(3, 2, '-'), Cell(3, 3, '-'), Cell(3, 4, '#')],
+        [Cell(4, 0, '#'), Cell(4, 1, '#'), Cell(4, 2, '#'), Cell(4, 3, '#'), Cell(4, 4, '#')]
+    ]
+    board = Board.from_state(state)
+    assert str(board) == str(board1)
+
+
+# Board.from_input
+# ============================================================================
+def test_board_from_input():
+    state = dedent("""
+        2
+        #--
+        #--
+        #--
+    """)[1:-1]
+    expected = dedent("""
+        #--
+        #b-
+        #--
+    """)[1:-1]
+    board = Board.from_input(state)
+
+    assert str(board) == expected
+
+
+# Board.load
+# ============================================================================
+def test_board_load_with_move():
+    state = dedent("""
+        UP
+        #--
+        #b-
+        ###
+    """)[1:-1]
+    expected = dedent("""
+        #b-
+        #--
+        ###
     """)[1:-1]
 
-    assert str(board2) == grid
+    with StringIO(state) as f:
+        board = Board.load(f)
+
+    assert str(board) == expected
+
+
+def test_board_load_with_rotate():
+    state = dedent("""
+        RIGHT
+        #--
+        #b-
+        ###
+    """)[1:-1]
+    expected = dedent("""
+        -b#
+        --#
+        ###
+    """)[1:-1]
+    with StringIO(state) as f:
+        board = Board.load(f)
+
+    assert str(board) == expected
+
+
+# Board.dimensions
+# ============================================================================
+def test_board_dimensions(board1):
+    assert board1.dimensions == Dimensions(5, 5)
 
 
 # Board.iter
 # ============================================================================
-def test_board_can_iterate_cells(board1):
+def test_board_iter(board1):
     assert list(board1) == [
         Cell(0, 0, '#'), Cell(0, 1, '#'), Cell(0, 2, '#'), Cell(0, 3, '#'), Cell(0, 4, '#'),
         Cell(1, 0, '#'), Cell(1, 1, '-'), Cell(1, 2, '-'), Cell(1, 3, '-'), Cell(1, 4, '#'),
@@ -93,21 +153,6 @@ def test_board_iter_box(board1):
         Cell(1, 1, '-'), Cell(1, 2, '-'), Cell(1, 3, '-'),
         Cell(2, 1, '-'), Cell(2, 2, 'b'), Cell(2, 3, '-'),
         Cell(3, 1, '-'), Cell(3, 2, '-'), Cell(3, 3, '-'),
-    ]
-
-
-# Board.filter
-# ============================================================================
-def test_board_can_iterate_filtered_cells(board1):
-    assert list(board1.filter('-')) == [
-        Cell(1, 1, '-'),
-        Cell(1, 2, '-'),
-        Cell(1, 3, '-'),
-        Cell(2, 1, '-'),
-        Cell(2, 3, '-'),
-        Cell(3, 1, '-'),
-        Cell(3, 2, '-'),
-        Cell(3, 3, '-'),
     ]
 
 
@@ -135,10 +180,24 @@ def test_board_find_cell_by_delta_raises(board1):
         board1.find(Delta(-1, -1))
 
 
+# Board.filter
+# ============================================================================
+def test_board_filter(board1):
+    assert list(board1.filter('-')) == [
+        Cell(1, 1, '-'),
+        Cell(1, 2, '-'),
+        Cell(1, 3, '-'),
+        Cell(2, 1, '-'),
+        Cell(2, 3, '-'),
+        Cell(3, 1, '-'),
+        Cell(3, 2, '-'),
+        Cell(3, 3, '-'),
+    ]
+
+
 # Board.set
 # ============================================================================
-# test set cell value
-def test_board_set_cell_value(board1):
+def test_board_set(board1):
     coord = Coord(2, 2)
     board1.set(coord, 'm')
     assert board1.find(coord).value == 'm'
@@ -157,13 +216,13 @@ def test_board_set_cell_value(board1):
     ((1, 1), False),
     ('b', False),
 ])
-def test_board_can_validate_coordinates(board1, target, expected):
+def test_board_is_valid(board1, target, expected):
     assert board1.is_valid(target) is expected
 
 
 # Board.fork
 # ============================================================================
-def test_board_can_change_forked_board(board1):
+def test_board_fork(board1):
     coord = Coord(2, 2)
     board2 = board1.fork()
     board2.set(coord, 'm')
@@ -171,44 +230,225 @@ def test_board_can_change_forked_board(board1):
     assert board1.find(coord).value == 'b'
 
 
-# Board.move
+# Bot.move
 # ============================================================================
-def test_board_can_move_cells(board1):
-    start, end = Coord(2, 2), Coord(2, 3)
-    board1.move(start, end)
+def test_bot_move(board1):
+    bot = Bot(board1)
 
-    assert board1.find(start).value == '-'
-    assert board1.find(end).value == 'b'
+    bot.move('UP')
+
+    assert board1.find(Coord(2, 2)).value == '-'
+    assert board1.find(Coord(1, 2)).value == 'b'
 
 
-def test_board_can_move_cell_by_delta(board1):
-    start, delta, end = Coord(2, 2), Delta(-1, 0), Coord(1, 2)
+# Board.str
+# ============================================================================
+def test_board_str_shows_board(board2):
+    grid = dedent("""
+        #######
+        #--#--#
+        #--#-b#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
 
-    board1.move(start, delta)
+    assert str(board2) == grid
 
-    assert board1.find(start).value == '-'
-    assert board1.find(end).value == 'b'
+
+# Board.pad
+# ============================================================================
+
+@pytest.mark.parametrize('state, next_state, expected', [
+    # CASE
+    (dedent("""
+            UP
+            #--
+            #b-
+            ###
+        """)[1:-1],
+     dedent("""
+            2
+            #--
+            #--
+            #--
+        """)[1:-1],
+     dedent("""
+            #--
+            #b-
+            #--
+            ###
+        """)[1:-1]
+     ),
+
+    # CASE
+    (dedent("""
+            RIGHT
+            ###
+            #b-
+            #--
+        """)[1:-1],
+     dedent("""
+            2
+            #--
+            #--
+            #--
+        """)[1:-1],
+     dedent("""
+            #--
+            #b-
+            #--
+            ###
+        """)[1:-1]
+     ),
+
+    # CASE
+    (dedent("""
+            LEFT
+            #--
+            eb-
+            #--
+            ###
+        """)[1:-1],
+     dedent("""
+            2
+            ###
+            #e#
+            ---
+        """)[1:-1],
+     dedent("""
+            o###
+            ##b#
+            #---
+            #---
+        """)[1:-1]
+     ),
+])
+def test_board_merge_two_boards(state, next_state, expected):
+    with StringIO(state) as f:
+        board = Board.load(f)
+
+    next_board = Board.from_input(next_state)
+
+    board.merge(next_board)
+
+    assert str(board) == expected
+
+
+# Board.pad
+# ============================================================================
+@pytest.mark.parametrize('directions, cell, expected', [
+    (['LEFT'], Cell(1, 2, 'b'), dedent("""
+        o---
+        o-b-
+        o---
+    """)[1:-1]),
+    (['RIGHT'], Cell(1, 1, 'b'), dedent("""
+        ---o
+        -b-o
+        ---o
+    """)[1:-1]),
+    (['UP'], Cell(2, 1, 'b'), dedent("""
+        ooo
+        ---
+        -b-
+        ---
+    """)[1:-1]),
+    (['DOWN'], Cell(1, 1, 'b'), dedent("""
+        ---
+        -b-
+        ---
+        ooo
+    """)[1:-1]),
+    (['UP', 'LEFT', 'DOWN', 'RIGHT', 'LEFT'], Cell(2, 3, 'b'), dedent("""
+        oooooo
+        oo---o
+        oo-b-o
+        oo---o
+        oooooo
+    """)[1:-1]),
+])
+def test_board_pad_left(directions, cell, expected):
+    state = dedent("""
+        2
+        ---
+        ---
+        ---
+    """)[1:-1]
+
+    board = Board.from_input(state)
+    board.pad(directions)
+
+    assert str(board) == expected
+    assert board.find('b') == cell
+
+
+# Board.rotate
+# ============================================================================
+@pytest.mark.parametrize('direction, expected', [
+    ('UP', dedent("""
+        123
+        456
+        789
+    """)[1:-1]),
+    ('RIGHT', dedent("""
+        369
+        258
+        147
+    """)[1:-1]),
+    ('DOWN', dedent("""
+        987
+        654
+        321
+    """)[1:-1]),
+    ('LEFT', dedent("""
+        741
+        852
+        963
+    """)[1:-1]),
+])
+def test_board_rotate(direction, expected):
+    state = dedent("""
+        123
+        456
+        789
+    """)[1:-1]
+    assert Board.rotate(state, direction) == expected
 
 
 @pytest.mark.parametrize('direction, expected', [
-    ('LEFT', Coord(2, 1)), ('RIGHT', Coord(2, 3)), ('UP', Coord(1, 2)), ('DOWN', Coord(3, 2)),
+    ('UP', dedent("""
+        abcd
+        efgh
+        ijkl
+    """)[1:-1]),
+    ('RIGHT', dedent("""
+        dhl
+        cgk
+        bfj
+        aei
+    """)[1:-1]),
+    ('DOWN', dedent("""
+        lkji
+        hgfe
+        dcba
+    """)[1:-1]),
+    ('LEFT', dedent("""
+        iea
+        jfb
+        kgc
+        lhd
+    """)[1:-1]),
 ])
-def test_board_can_move_right_left_up_and_down(board1, direction, expected):
-    bot_coord = Coord(2, 2)
-    delta = MOVE[direction]
+def test_board_rotate_rectangle(direction, expected):
+    state = dedent("""
+        abcd
+        efgh
+        ijkl
+    """)[1:-1]
 
-    board1.move(bot_coord, delta)
-
-    assert board1.find(bot_coord).value == '-'
-    assert board1.find(expected).value == 'b'
-
-
-def test_board_it_will_not_move_to_a_blocked_cell(board1):
-    coord = Coord(1, 1)
-    delta = MOVE['LEFT']
-
-    with pytest.raises(InvalidTarget):
-        board1.move(coord, delta)
+    assert Board.rotate(state, direction) == expected
 
 
 # Bot.ini
@@ -227,17 +467,6 @@ def test_bot_initializes_with_defaults(board1):
 
     assert bot.uid is 'b'
     assert bot.cell == Cell(2, 2, 'b')
-
-
-# Bot.move
-# ============================================================================
-def test_bot_can_move(board1):
-    bot = Bot(board1)
-
-    bot.move('UP')
-
-    assert board1.find(Coord(2, 2)).value == '-'
-    assert board1.find(Coord(1, 2)).value == 'b'
 
 
 # Bot.fork
@@ -272,7 +501,7 @@ def test_bot_forks_are_added_to_registry(board1):
 
 # Bot.ping
 # ============================================================================
-def test_bot_can_ping_cell(board1):
+def test_bot_ping(board1):
     bot = Bot(board1)
 
     bots = list(bot.ping())
@@ -316,9 +545,7 @@ def test_bot_can_find_path_to_exit_3():
 
 def test_bot_find_path_does_not_affect_board_or_bot(board2):
     bot = Bot(board2)
-
     bot.find_path('e')
-
     grid = dedent("""
         #######
         #--#--#
@@ -331,6 +558,22 @@ def test_bot_find_path_does_not_affect_board_or_bot(board2):
 
     assert str(board2) == grid
     assert bot.uid == 'b'
+
+
+def test_bot_find_path_returns_empty_list():
+    grid = dedent("""
+        #######
+        #--#--#
+        #--#-b#
+        #--#--#
+        #-----#
+        #-----#
+        #######
+    """)[1:-1]
+
+    board = Board.from_str(grid)
+    bot = Bot(board)
+    assert bot.find_path('e') == []
 
 
 # Cartesian.init
@@ -351,7 +594,7 @@ def test_cartesian_is_equal_when_y_and_x_match(cartesian, expected):
     assert (Cartesian(2, 2) == cartesian) == expected
 
 
-# Coord.hash
+# Cartesian.hash
 # ============================================================================
 def test_cartesian_hash_includes_y_and_x():
     cartesian = Cartesian(2, 2)
@@ -430,306 +673,8 @@ def test_delta_resolves_coord_from_start():
     assert delta.resolve(coord) == Coord(1, 5)
 
 
-# Board.init
+# Other
 # ============================================================================
-def test_partial_board_sets_bot_position():
-    state = dedent("""
-        #--
-        #--
-        #--
-    """)[1:-1]
-    board = Board.from_str(state)
-    board.set(Coord(1, 1), 'b')
-    assert board.find('b') == Cell(1, 1, 'b')
-
-
-# Board.from_str
-# ============================================================================
-def test_partial_board_from_input_parses_prev_state():
-    state = dedent("""
-        UP
-        #--
-        #b-
-        ###
-    """)[1:-1]
-    expected = dedent("""
-        #b-
-        #--
-        ###
-    """)[1:-1]
-    with StringIO(state) as f:
-        board = Board.load(f)
-    # board = Board.from_input(state)
-
-    assert str(board) == expected
-
-
-def test_partial_board_from_input_parses_next_style_state():
-    state = dedent("""
-        2
-        #--
-        #--
-        #--
-    """)[1:-1]
-    expected = dedent("""
-        #--
-        #b-
-        #--
-    """)[1:-1]
-    board = Board.from_input(state)
-
-    assert str(board) == expected
-
-
-# Board.with_move
-# ============================================================================
-def test_partial_board_with_move_creates_a_board():
-    state = dedent("""
-        2
-        #--
-        #--
-        #--
-    """)[1:-1]
-    expected = dedent("""
-        #--
-        #b-
-        #--
-    """)[1:-1]
-
-    board = Board.from_input(state)
-
-    assert str(board) == expected
-
-
-def test_partial_board_with_move_moves_bot():
-    state = dedent("""
-        UP
-        #--
-        #b-
-        ###
-    """)[1:-1]
-    expected = dedent("""
-        #b-
-        #--
-        ###
-    """)[1:-1]
-    with StringIO(state) as f:
-        board = Board.load(f)
-    assert str(board) == expected
-
-
-def test_partial_board_with_move_rotate_and_moves_bot():
-    state = dedent("""
-        RIGHT
-        #--
-        #b-
-        ###
-    """)[1:-1]
-    expected = dedent("""
-        -b#
-        --#
-        ###
-    """)[1:-1]
-
-    with StringIO(state) as f:
-        board = Board.load(f)
-    assert str(board) == expected
-
-
-# Board.rotate
-# ============================================================================
-@pytest.mark.parametrize('direction, expected', [
-    ('UP', dedent("""
-        123
-        456
-        789
-    """)[1:-1]),
-    ('RIGHT', dedent("""
-        369
-        258
-        147
-    """)[1:-1]),
-    ('DOWN', dedent("""
-        987
-        654
-        321
-    """)[1:-1]),
-    ('LEFT', dedent("""
-        741
-        852
-        963
-    """)[1:-1]),
-])
-def test_partial_board_rotate(direction, expected):
-    state = dedent("""
-        123
-        456
-        789
-    """)[1:-1]
-    assert Board.rotate(state, direction) == expected
-
-
-@pytest.mark.parametrize('direction, expected', [
-    ('UP', dedent("""
-        abcd
-        efgh
-        ijkl
-    """)[1:-1]),
-    ('RIGHT', dedent("""
-        dhl
-        cgk
-        bfj
-        aei
-    """)[1:-1]),
-    ('DOWN', dedent("""
-        lkji
-        hgfe
-        dcba
-    """)[1:-1]),
-    ('LEFT', dedent("""
-        iea
-        jfb
-        kgc
-        lhd
-    """)[1:-1]),
-])
-def test_partial_board_rotate_rectangle(direction, expected):
-    state = dedent("""
-        abcd
-        efgh
-        ijkl
-    """)[1:-1]
-
-    assert Board.rotate(state, direction) == expected
-
-
-# Board.merge
-# ============================================================================
-@pytest.mark.parametrize('directions, cell, expected', [
-    (['LEFT'], Cell(1, 2, 'b'), dedent("""
-        o---
-        o-b-
-        o---
-    """)[1:-1]),
-    (['RIGHT'], Cell(1, 1, 'b'), dedent("""
-        ---o
-        -b-o
-        ---o
-    """)[1:-1]),
-    (['UP'], Cell(2, 1, 'b'), dedent("""
-        ooo
-        ---
-        -b-
-        ---
-    """)[1:-1]),
-    (['DOWN'], Cell(1, 1, 'b'), dedent("""
-        ---
-        -b-
-        ---
-        ooo
-    """)[1:-1]),
-    (['UP', 'LEFT', 'DOWN', 'RIGHT', 'LEFT'], Cell(2, 3, 'b'), dedent("""
-        oooooo
-        oo---o
-        oo-b-o
-        oo---o
-        oooooo
-    """)[1:-1]),
-])
-def test_partial_board_pad_left(directions, cell, expected):
-    state = dedent("""
-        2
-        ---
-        ---
-        ---
-    """)[1:-1]
-
-    board = Board.from_input(state)
-    board.pad(directions)
-
-    assert str(board) == expected
-    assert board.find('b') == cell
-
-
-# Board.merge
-# ============================================================================
-@pytest.mark.parametrize('state, next_state, expected', [
-    # CASE
-    (dedent("""
-            UP
-            #--
-            #b-
-            ###
-        """)[1:-1],
-     dedent("""
-            2
-            #--
-            #--
-            #--
-        """)[1:-1],
-     dedent("""
-            #--
-            #b-
-            #--
-            ###
-        """)[1:-1]
-     ),
-
-    # CASE
-    (dedent("""
-            RIGHT
-            ###
-            #b-
-            #--
-        """)[1:-1],
-     dedent("""
-            2
-            #--
-            #--
-            #--
-        """)[1:-1],
-     dedent("""
-            #--
-            #b-
-            #--
-            ###
-        """)[1:-1]
-     ),
-
-    # CASE
-    (dedent("""
-            LEFT
-            #--
-            eb-
-            #--
-            ###
-        """)[1:-1],
-     dedent("""
-            2
-            ###
-            #e#
-            ---
-        """)[1:-1],
-     dedent("""
-            o###
-            ##b#
-            #---
-            #---
-        """)[1:-1]
-     ),
-])
-def test_partial_board_merge_two_boards(state, next_state, expected):
-    with StringIO(state) as f:
-        board = Board.load(f)
-
-    next_board = Board.from_input(next_state)
-
-    board.merge(next_board)
-
-    assert str(board) == expected
-
-
-# test bot find position
 def test_bot_find_position():
     master = dedent("""
         #######
@@ -753,7 +698,6 @@ def test_bot_find_position():
     assert bot.find_move_from_position(master) == 'RIGHT'
 
 
-# test bot find position
 def test_bot_next_move():
     master = dedent("""
         #######

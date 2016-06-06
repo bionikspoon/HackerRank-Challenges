@@ -28,12 +28,6 @@ class Board(object):
 
     @classmethod
     def from_input(cls, data):
-        """
-        Create a PartialBoard from input
-
-        :param str data:
-        :rtype: PartialBoard
-        """
         data = data.strip().split('\n')
 
         _ = data.pop(0)
@@ -46,7 +40,7 @@ class Board(object):
 
     @classmethod
     def load(cls, f):
-        data = [line.strip() for line in f.readlines() if line]
+        data = f.read().strip().split('\n')
         direction = data.pop(0)
 
         if direction not in MOVE.keys():
@@ -57,32 +51,6 @@ class Board(object):
         self.move('b', MOVE['UP'])
 
         return self
-
-    @staticmethod
-    def rotate(state, direction):
-        """
-        :param str state:
-        :param str direction:
-        :return: Rotated state
-        :rtype: str
-        """
-        state = [list(line) for line in state.split('\n')]
-        next_state = None
-
-        if direction == 'UP':
-            next_state = state
-        if direction == 'RIGHT':
-            next_state = reversed(list(zip(*state)))
-        if direction == 'DOWN':
-            next_state = [reversed(args) for args in reversed(state)]
-        if direction == 'LEFT':
-            next_state = [reversed(args) for args in zip(*state)]
-
-        if next_state is None:
-            msg = 'Direction not in %s' % MOVE.keys()
-            raise InvalidTarget(msg)
-
-        return '\n'.join(''.join(line) for line in next_state)
 
     @property
     def state(self):
@@ -205,12 +173,8 @@ class Board(object):
         self.set(end_cell, start_cell.value)
         self.set(start_cell, trail)
 
-    @staticmethod
-    def to_string(state):
-        return '\n'.join(''.join(cell.value if hasattr(cell, 'value') else cell for cell in row) for row in state)
-
     def __str__(self):
-        return self.to_string(self.state)
+        return '\n'.join(''.join(cell.value if hasattr(cell, 'value') else cell for cell in row) for row in self.state)
 
     def merge(self, other, target='b'):
         self_target = self.find(target)
@@ -265,6 +229,32 @@ class Board(object):
             self.state.append([Cell(0, 0, 'o') for _ in range(self.dimensions.x)])
 
         self.pad(directions)
+
+    @staticmethod
+    def rotate(state, direction):
+        """
+        :param str state:
+        :param str direction:
+        :return: Rotated state
+        :rtype: str
+        """
+        state = [list(line) for line in state.split('\n')]
+        next_state = None
+
+        if direction == 'UP':
+            next_state = state
+        if direction == 'RIGHT':
+            next_state = reversed(list(zip(*state)))
+        if direction == 'DOWN':
+            next_state = [reversed(args) for args in reversed(state)]
+        if direction == 'LEFT':
+            next_state = [reversed(args) for args in zip(*state)]
+
+        if next_state is None:
+            msg = 'Direction not in %s' % MOVE.keys()
+            raise InvalidTarget(msg)
+
+        return '\n'.join(''.join(line) for line in next_state)
 
 
 class Bot(object):
@@ -374,6 +364,9 @@ class Bot(object):
         :return: Path to target
         :rtype: [str]
         """
+        if not self.board.find(target, None):
+            return []
+
         # noinspection PyPep8Naming
         BotClass = self.__class__
         board = self.board.fork()
@@ -388,10 +381,11 @@ class Bot(object):
         path_finder = registry.get(target)
         return path_finder.uid.split(' ')[1:]
 
-    def next_move(self, master):
+    def next_move(self, master, target='e'):
         """Get next move"""
-        if self.board.find('e', None):
-            return self.find_path('e')[0]
+        path = self.find_path(target)
+        if path:
+            return path.pop(0)
         return self.find_move_from_position(master)
 
     def __repr__(self):
@@ -506,12 +500,12 @@ MOVE = {
 }
 
 
-def get_prev_state(filename):
+def load(filename):
     if not os.path.isfile(filename):
         return None
 
     with open(filename) as f:
-        return ''.join(f.readlines())
+        return Board.load(f)
 
 
 def set_next_state(filename, state):
@@ -531,13 +525,14 @@ def main():
     """)[1:-1]
     filename = 'moves.txt'
 
-    prev_state = get_prev_state(filename)
+    board = load(filename)
     data = sys.stdin.read().rstrip()
-    if prev_state:
-        board = Board.from_input(prev_state)
-        board.merge(Board.from_input(data))
+    next_state = Board.from_input(data)
+    if board:
+        board.merge(next_state)
     else:
-        board = Board.from_input(data)
+        board = next_state
+
     bot = Bot(board)
     next_move = bot.next_move(master)
 
