@@ -1,3 +1,4 @@
+# /usr/bin/env python
 # coding=utf-8
 from __future__ import print_function
 
@@ -6,17 +7,15 @@ import os.path
 import shutil
 import subprocess
 import sys
-from contextlib import contextmanager
+from argparse import ArgumentParser, FileType
+from contextlib import contextmanager, closing
 from functools import partial
 from tempfile import mkdtemp
 from textwrap import dedent
 
-EXECUTABLE = sys.executable  # python interpreter
 BASE_PATH = partial(os.path.join, os.path.abspath(os.path.dirname(__file__)))
 TARGET = BASE_PATH('main.py')
 REPLAY = BASE_PATH('moves.json')
-
-MAX_MOVES = 50
 
 
 class Board(object):
@@ -63,7 +62,6 @@ class Board(object):
     def move(self, direction):
         direction = direction.strip()
         if direction not in self.op.keys():
-            print(direction)
             raise InvalidTarget('Direction not in UP LEFT RIGHT DOWN')
         self.state = self.rotate(str(self), direction)
         pos_y, pos_x = self.find()
@@ -164,7 +162,21 @@ def run(command, stdin):
     return stdin, stdout.rstrip(), stderr.rstrip()
 
 
+def create_parser():
+    parser = ArgumentParser(description='Run maze escape.')
+    parser.add_argument('-e', '-p', '--exec', help='Executable to run code (python)', default=sys.executable)
+    parser.add_argument('-f', '--file', help='File for executable to call (main.py)', default=TARGET, dest='target')
+    parser.add_argument('-o', '--out', help='File to dump moves (moves.json)', default=REPLAY, dest='replay',
+                        type=FileType('w'))
+    parser.add_argument('-m', '--max', help='Max number of moves (50)', default=50, type=int, dest='max_moves')
+
+    return parser.parse_args()
+
+
 def main():
+    args = create_parser()
+    print(args)
+
     # create initial board
     board = Board(dedent("""
         #######
@@ -179,15 +191,15 @@ def main():
     # collect moves
     moves = []
 
-    with temp_dir(copy_targets=[TARGET]) as tmpdir:
-        command = EXECUTABLE, tmpdir(TARGET)  # ("python", "main.py")
+    with temp_dir(copy_targets=[args.target]) as tmpdir:
+        command = (args.exec, tmpdir(args.target))  # ("python", "main.py")
 
-        for move in range(MAX_MOVES):
+        for move in range(args.max_moves):
             # run command
             stdin, stdout, stderr = run(command, '1\n' + board.out())
 
             try:
-                # update board state
+                # update board initial_state
                 board.move(stdout)
             except GameWon:
                 break
@@ -212,7 +224,7 @@ def main():
                 })
 
     # dump details about move to file
-    with open(REPLAY, 'w') as f:
+    with closing(args.replay) as f:
         json.dump(moves, f, sort_keys=True, indent=2)
 
 
