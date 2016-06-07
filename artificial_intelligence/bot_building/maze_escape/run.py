@@ -1,16 +1,22 @@
 # coding=utf-8
+from __future__ import print_function
+
 import json
 import os.path
 import shutil
 import subprocess
 import sys
-from tempfile import TemporaryDirectory
+from contextlib import contextmanager
+from functools import partial
+from tempfile import mkdtemp
 from textwrap import dedent
 
 EXECUTABLE = sys.executable  # python interpreter
-TARGET = 'main.py'
-REPLAY = 'moves.json'
-BASE_PATH = os.path.abspath(os.path.dirname(__file__))
+BASE_PATH = partial(os.path.join, os.path.abspath(os.path.dirname(__file__)))
+TARGET = BASE_PATH('main.py')
+REPLAY = BASE_PATH('moves.json')
+
+MAX_MOVES = 50
 
 
 class Board(object):
@@ -94,9 +100,9 @@ class Board(object):
     def out(self):
         pos_y, pos_x = self.find()
         data = [
-            [self.state[pos_y - 1][pos_x - 1], self.state[pos_y - 1][pos_x + 0], self.state[pos_y - 1][pos_x + 1] ],
-            [self.state[pos_y - 0][pos_x - 1], self.state[pos_y - 0][pos_x + 0], self.state[pos_y - 0][pos_x + 1] ],
-            [self.state[pos_y + 1][pos_x - 1], self.state[pos_y + 1][pos_x + 0], self.state[pos_y + 1][pos_x + 1] ],
+            [self.state[pos_y - 1][pos_x - 1], self.state[pos_y - 1][pos_x + 0], self.state[pos_y - 1][pos_x + 1]],
+            [self.state[pos_y - 0][pos_x - 1], self.state[pos_y - 0][pos_x + 0], self.state[pos_y - 0][pos_x + 1]],
+            [self.state[pos_y + 1][pos_x - 1], self.state[pos_y + 1][pos_x + 0], self.state[pos_y + 1][pos_x + 1]],
         ]
         return '\n'.join(''.join(row) for row in data)
 
@@ -112,15 +118,55 @@ class GameWon(Exception):
     pass
 
 
+@contextmanager
+def temp_dir(copy_targets=None):
+    copy_targets = copy_targets or []
+
+    # create temp directory
+    path = mkdtemp()
+    tmpdir = partial(os.path.join, path)
+
+    # copy each target into temp directory
+    for target in copy_targets:
+        filename = os.path.basename(target)
+        shutil.copy(target, tmpdir(filename))
+
+    # cd temp directory
+    os.chdir(tmpdir())
+
+    # yield context handle
+    yield tmpdir
+
+    # remove temp directory
+    shutil.rmtree(tmpdir())
+
+
+@contextmanager
+def process(command, **kwargs):
+    kwargs.setdefault('stdin', subprocess.PIPE)
+    kwargs.setdefault('stdout', subprocess.PIPE)
+    kwargs.setdefault('stderr', subprocess.PIPE)
+    kwargs.setdefault('universal_newlines', True)
+
+    # create subprocess
+    handle = subprocess.Popen(command, **kwargs)
+
+    # yield context handle
+    yield handle
+
+
 def run(command, stdin):
-    with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          universal_newlines=True) as p:
-        stdout, stderr = p.communicate(stdin)
-    return tuple(map(str.rstrip, (stdin, stdout, stderr)))
+    # create subprocess context
+    with process(command) as p:
+        # send input, collect output
+        stdout, stderr = p.communicate(input=stdin)
+
+    return stdin, stdout.rstrip(), stderr.rstrip()
 
 
 def main():
-    init = dedent("""
+    # create initial board
+    board = Board(dedent("""
         #######
         #--#--#
         #--#b-#
@@ -128,20 +174,20 @@ def main():
         e-----#
         #-----#
         #######
-    """[1:]).rstrip()
+    """)[1:-1])
 
-    board = Board(init)
+    # collect moves
     moves = []
 
-    with TemporaryDirectory() as tmpdir:
-        exec_file = shutil.copy(os.path.join(BASE_PATH, TARGET), os.path.join(tmpdir, TARGET))
-        os.chdir(tmpdir)
+    with temp_dir(copy_targets=[TARGET]) as tmpdir:
+        command = EXECUTABLE, tmpdir(TARGET)  # ("python", "main.py")
 
-        command = EXECUTABLE, exec_file
+        for move in range(MAX_MOVES):
+            # run command
+            stdin, stdout, stderr = run(command, '1\n' + board.out())
 
-        for move in range(200):
             try:
-                stdin, stdout, stderr = run(command, '1\n'+ board.out())
+                # update board state
                 board.move(stdout)
             except GameWon:
                 break
@@ -149,20 +195,25 @@ def main():
                 print(e)
                 break
             finally:
+                # print details about move
                 print()
                 if stderr:
                     print('STDERR')
                     print(stderr)
                 print('STDIN    STDOUT', stdout)
                 print(stdin)
+
+                # collect details about move
                 moves.append({
                     'move': move,
                     'stdin': stdin,
                     'stdout': stdout,
                     'stderr': stderr,
                 })
-    with open(os.path.join(BASE_PATH, REPLAY), 'w') as f:
-        json.dump(moves, f, sort_keys=True, indent=4)
+
+    # dump details about move to file
+    with open(REPLAY, 'w') as f:
+        json.dump(moves, f, sort_keys=True, indent=2)
 
 
 if __name__ == '__main__':

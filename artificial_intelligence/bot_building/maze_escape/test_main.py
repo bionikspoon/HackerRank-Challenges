@@ -469,19 +469,18 @@ def test_board_rotate(direction, undo, expected):
     assert Board.rotate(state, direction, undo=undo) == expected
 
 
-# test board rotate with symbols
-def test_board_rotate_with_symbols():
+@pytest.mark.parametrize('direction, undo', [
+    ('UP', False), ('RIGHT', False), ('DOWN', False), ('LEFT', False),
+    ('UP', True), ('RIGHT', True), ('DOWN', True), ('LEFT', True),
+])
+def test_board_rotate_with_symbols(direction, undo):
     state = dedent("""
         -^-
         <->
         -v-
     """)[1:-1]
 
-    direction = 'UP'
-    undo = False
     assert Board.rotate(state, direction, undo=undo) == state
-
-    pass
 
 
 @pytest.mark.parametrize('direction, expected', [
@@ -707,6 +706,45 @@ def test_bot_find_path_returns_empty_list():
             #######
         """)[1:-1]
     ],
+    [
+        dedent("""
+            2
+            ####
+            #--#
+            #--#
+            #b-#
+            ---o
+            ---o
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #--#--#
+            #--#^-#
+            e-----#
+            #-----#
+            #######
+        """)[1:-1]
+    ],
+    [
+        dedent("""
+            2
+            ---ooo
+            -b####
+            -----#
+            -----#
+            oo####
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #--#--#
+            #--#--#
+            e--<--#
+            #-----#
+            #######
+        """)[1:-1]
+    ],
 ])
 def test_bot_find_position(state, expected):
     master = dedent("""
@@ -804,6 +842,7 @@ def test_bot_simulate_all_moves():
         'RIGHT': {'###\n-b-\n---', '#--\n-b-\n---', '-##\n-b-\n---', '-#-\n-b-\n---', '--#\n-b-\n---'},
         'UP': {'###\n#b-\n#--', '---\n#b-\n#--', '#--\n#b-\n#--', '##e\n#b-\n#--'}
     }
+
     assert Bot.simulate_all_moves(positions, master) == expected
 
 
@@ -957,16 +996,15 @@ def test_bot_next_move_1():
     assert bot.next_move(master) == 'RIGHT'
 
 
-@pytest.mark.xfail
 def test_bot_next_move_2():
     master = dedent("""
-        #######
-        #--#--#
-        #--#--#
-        #--#--#
-        e-----#
-        #-----#
-        #######
+#######
+#--#--#
+#--#1-#
+#--#-2#
+e-----#
+#-----#
+#######
     """)[1:-1]
     state = dedent("""
         2

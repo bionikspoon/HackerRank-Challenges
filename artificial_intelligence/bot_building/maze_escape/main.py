@@ -1,11 +1,12 @@
 # coding=utf-8
 import os
+import re
 import sys
 from collections import defaultdict
 from copy import deepcopy
+from functools import partial
 from itertools import chain
 from operator import eq, itemgetter, contains
-from statistics import mean
 from textwrap import dedent
 
 RAISE = 'RAISE'
@@ -55,7 +56,6 @@ class Board(object):
         return self
 
     def dump(self, f, move):
-        debug(str(self), pformat=False)
         f.write(move)
         f.write('\n')
         f.write(str(self))
@@ -81,14 +81,14 @@ class Board(object):
         return (cell for row in self.state for cell in row)
 
     def iter_box(self, coord, dimensions):
-        min_y, min_x = coord.y, coord.x
-        max_y, max_x = dimensions.y + coord.y, dimensions.x + coord.x
+        _min = coord
+        _max = Coord(dimensions.y + coord.y, dimensions.x + coord.x)
         for y, row in enumerate(self.state):
-            if y < min_y or y >= max_y:
+            if y < _min.y or y >= _max.y:
                 continue
 
             for x, cell in enumerate(row):
-                if x < min_x or x >= max_x:
+                if x < _min.x or x >= _max.x:
                     continue
                 yield cell
 
@@ -259,6 +259,8 @@ class Board(object):
         """
         state = [list(line) for line in state.split('\n')]
         next_state = None
+        re_symbol = re.compile(r'(?P<UP>\^)|(?P<RIGHT>>)|(?P<DOWN>v)|(?P<LEFT><)')
+        sub = {'UP': '^', 'RIGHT': '>', 'DOWN': 'v', 'LEFT': '<'}
 
         undo_map = {'UP': 'UP', 'DOWN': 'DOWN', 'RIGHT': 'LEFT', 'LEFT': 'RIGHT'}
 
@@ -269,16 +271,27 @@ class Board(object):
             next_state = state
         if direction == 'RIGHT':
             next_state = reversed(list(zip(*state)))
+            sub = {'UP': '<', 'RIGHT': '^', 'DOWN': '>', 'LEFT': 'v'}
         if direction == 'DOWN':
             next_state = [reversed(args) for args in reversed(state)]
+            sub = {'UP': 'v', 'RIGHT': '<', 'DOWN': '^', 'LEFT': '>'}
         if direction == 'LEFT':
             next_state = [reversed(args) for args in zip(*state)]
+            sub = {'UP': '>', 'RIGHT': 'v', 'DOWN': '<', 'LEFT': '^'}
 
         if next_state is None:
             msg = 'Direction not in %s' % MOVE.keys()
             raise InvalidTarget(msg)
 
-        return '\n'.join(''.join(line) for line in next_state)
+        def repl(_sub, match):
+            group = match.lastgroup
+            return _sub[group]
+
+        repl_partial = partial(repl, sub)
+
+        state_str = '\n'.join(''.join(line) for line in next_state)
+
+        return re_symbol.sub(repl_partial, state_str)
 
 
 class Bot(object):
@@ -343,6 +356,7 @@ class Bot(object):
     def find_position(self, master_str):
         directions = ('UP', 'DOWN', 'LEFT', 'RIGHT')
         pos = self.cell
+
         matches = defaultdict(list)
         orientation = {key: Board.from_str(Board.rotate(master_str, key)) for key in directions}
 
@@ -351,10 +365,17 @@ class Bot(object):
         for direction, master_board in orientation.items():
             for cell in master_board.filter('-'):
                 coord = Coord(cell.y - pos.y, cell.x - pos.x)
+
+                if not master_board.is_valid(coord):
+                    continue
+
                 master_box = master_board.iter_box(coord, self.board.dimensions)
 
                 for state_cell, master_cell in zip(self.board, master_box):
-                    if state_cell.value in 'bo':
+                    if state_cell.value == 'b' and master_cell.value == '-':
+                        continue
+
+                    if state_cell.value == 'o':
                         continue
 
                     if state_cell.value != master_cell.value:
@@ -364,7 +385,7 @@ class Bot(object):
 
         for direction, master_board in orientation.items():
             for match in matches[direction]:
-                master_board.set(match, SYMBOL[direction])
+                master_board.set(match, '^')
 
         master_boards = []
         for direction, master_board in orientation.items():
@@ -377,14 +398,16 @@ class Bot(object):
                 master_fork.set(cell, cell.value)
         return master_fork
 
-    def reveal_map(self, moves, master):
+    def reveal_map(self, move_views, master):
         # noinspection PyPep8Naming
         BotClass = self.__class__
         moves_data = {}
 
         move_positions = defaultdict(list)
-        for direction, views in moves.items():
+
+        for direction, views in move_views.items():
             state = Board.rotate(str(self.board), direction)
+
             for view in views:
                 fork = Board.from_str(state)
                 bot = BotClass(fork)
@@ -392,6 +415,7 @@ class Bot(object):
                 bot.board.merge(Board.from_str(view))
 
                 positions = bot.find_position(master)
+
                 cells = list(positions.filter('<>v^', cmp=contains))
                 move_positions[direction].append(cells)
 
@@ -446,10 +470,7 @@ class Bot(object):
             positions = Board.from_str(Board.rotate(positions_str, orientation))
             master = Board.from_str(Board.rotate(master_str, orientation))
 
-            debug()
-            debug(str(positions))
-
-            for pos in positions.filter(symbol):
+            for pos in positions.filter('^'):
                 for direction, view in cls.simulate_each_move(master, pos).items():
                     moves[direction].add(view)
 
@@ -487,10 +508,9 @@ class Bot(object):
             return path.pop(0)
 
         position = self.find_position(master_str)
-        debug('position')
-        debug(str(position))
-        move_positions = Bot.simulate_all_moves(str(position), master_str)
-        moves = self.reveal_map(move_positions, master_str)
+        move_views = Bot.simulate_all_moves(str(position), master_str)
+
+        moves = self.reveal_map(move_views, master_str)
         return moves[0]
 
     def __repr__(self):
@@ -610,6 +630,10 @@ SYMBOL = {
     'LEFT': '<',
     'RIGHT': '>',
 }
+
+
+def mean(items):
+    return sum(items) / len(items)
 
 
 def debug(*args, **kwargs):
