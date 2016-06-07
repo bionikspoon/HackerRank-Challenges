@@ -14,8 +14,12 @@ from tempfile import mkdtemp
 from textwrap import dedent
 
 BASE_PATH = partial(os.path.join, os.path.abspath(os.path.dirname(__file__)))
+
+# DEFAULTS
 TARGET = BASE_PATH('main.py')
-REPLAY = BASE_PATH('moves.json')
+MOVES = BASE_PATH('moves.json')
+MAX_MOVES = 50
+EXECUTABLE = sys.executable
 
 
 class Board(object):
@@ -39,9 +43,13 @@ class Board(object):
         self._state = [[char for char in row] for row in value.split('\n') if row]
 
     def __iter__(self):
+        """Iterate cells in state"""
+
         return ((y, x, char) for y, row in enumerate(self.state) for x, char in enumerate(row))
 
     def find(self, target='b'):
+        """Find cell coord by character"""
+
         for (y, x, char) in self:
             if char == target:
                 return y, x
@@ -49,6 +57,8 @@ class Board(object):
         raise InvalidTarget()
 
     def set(self, y, x, value):
+        """Set cell in state to value"""
+
         target = self.state[y][x]
 
         if target == '#':
@@ -60,27 +70,45 @@ class Board(object):
             raise GameWon()
 
     def move(self, direction):
+        """Move bot in direction"""
+
         direction = direction.strip()
         if direction not in self.op.keys():
             raise InvalidTarget('Direction not in UP LEFT RIGHT DOWN')
-        self.state = self.rotate(str(self), direction)
-        pos_y, pos_x = self.find()
-        next_y, next_x = self.op['UP'](pos_y, pos_x)
 
-        self.set(pos_y, pos_x, '-')
-        self.set(next_y, next_x, 'b')
+        # rotate state
+        self.state = self.rotate(str(self), direction)
+
+        # move bot
+        pos_y, pos_x = self.find()  # get bot pos
+        next_y, next_x = self.op['UP'](pos_y, pos_x)  # get next bot pos
+
+        self.set(pos_y, pos_x, '-')  # remove bot
+        self.set(next_y, next_x, 'b')  # set bot
+
+    def view(self):
+        """Get bot's POV"""
+
+        pos_y, pos_x = self.find()  # bot position
+
+        data = [
+            [self.state[pos_y - 1][pos_x - 1], self.state[pos_y - 1][pos_x + 0], self.state[pos_y - 1][pos_x + 1]],
+            [self.state[pos_y - 0][pos_x - 1], '-', self.state[pos_y - 0][pos_x + 1]],
+            [self.state[pos_y + 1][pos_x - 1], self.state[pos_y + 1][pos_x + 0], self.state[pos_y + 1][pos_x + 1]],
+        ]
+        return self.to_string(data)
+
+    def __str__(self):
+        return self.to_string(self.state)
 
     @staticmethod
     def rotate(state, direction):
-        """
-        :param str state:
-        :param str direction:
-        :return: Rotated state
-        :rtype: str
-        """
-        state = [list(line) for line in state.split('\n')]
+        """Rotate grid in direction"""
+
+        state = [list(line) for line in state.split('\n')]  # state as list of lists
         next_state = None
 
+        # rotate cells in state
         if direction == 'UP':
             next_state = state
         if direction == 'RIGHT':
@@ -93,19 +121,12 @@ class Board(object):
         if next_state is None:
             raise InvalidTarget('Direction not in UP RIGHT DOWN LEFT')
 
-        return '\n'.join(''.join(line) for line in next_state)
+        # return state as string
+        return Board.to_string(next_state)
 
-    def out(self):
-        pos_y, pos_x = self.find()
-        data = [
-            [self.state[pos_y - 1][pos_x - 1], self.state[pos_y - 1][pos_x + 0], self.state[pos_y - 1][pos_x + 1]],
-            [self.state[pos_y - 0][pos_x - 1], self.state[pos_y - 0][pos_x + 0], self.state[pos_y - 0][pos_x + 1]],
-            [self.state[pos_y + 1][pos_x - 1], self.state[pos_y + 1][pos_x + 0], self.state[pos_y + 1][pos_x + 1]],
-        ]
-        return '\n'.join(''.join(row) for row in data)
-
-    def __str__(self):
-        return '\n'.join(''.join(row) for row in self.state)
+    @staticmethod
+    def to_string(state):
+        return '\n'.join(''.join(row) for row in state)
 
 
 class InvalidTarget(Exception):
@@ -118,6 +139,8 @@ class GameWon(Exception):
 
 @contextmanager
 def temp_dir(copy_targets=None):
+    """Create temp directory context"""
+
     copy_targets = copy_targets or []
 
     # create temp directory
@@ -141,6 +164,8 @@ def temp_dir(copy_targets=None):
 
 @contextmanager
 def process(command, **kwargs):
+    """Create subprocess context"""
+
     kwargs.setdefault('stdin', subprocess.PIPE)
     kwargs.setdefault('stdout', subprocess.PIPE)
     kwargs.setdefault('stderr', subprocess.PIPE)
@@ -154,6 +179,8 @@ def process(command, **kwargs):
 
 
 def run(command, stdin):
+    """Call a command in a subprocess"""
+
     # create subprocess context
     with process(command) as p:
         # send input, collect output
@@ -163,19 +190,23 @@ def run(command, stdin):
 
 
 def create_parser():
+    """Create an argument parser"""
+
     parser = ArgumentParser(description='Run maze escape.')
-    parser.add_argument('-e', '-p', '--exec', help='Executable to run code (python)', default=sys.executable)
-    parser.add_argument('-f', '--file', help='File for executable to call (main.py)', default=TARGET, dest='target')
-    parser.add_argument('-o', '--out', help='File to dump moves (moves.json)', default=REPLAY, dest='replay',
-                        type=FileType('w'))
-    parser.add_argument('-m', '--max', help='Max number of moves (50)', default=50, type=int, dest='max_moves')
+    parser.add_argument('-e', '-p', '--exec', default=EXECUTABLE, dest='executable',
+                        help='Executable to run code (%s)' % os.path.basename(EXECUTABLE))
+    parser.add_argument('-f', '--file', default=TARGET, dest='target',
+                        help='File for executable to call (%s)' % os.path.basename(TARGET))
+    parser.add_argument('-o', '--out', default=MOVES, dest='moves', type=FileType('w'),
+                        help='File to dump moves (%s)' % os.path.basename(MOVES))
+    parser.add_argument('-m', '--max', default=MAX_MOVES, type=int, dest='max_moves',
+                        help='Max number of moves (%d)' % MAX_MOVES)
 
     return parser.parse_args()
 
 
 def main():
     args = create_parser()
-    print(args)
 
     # create initial board
     board = Board(dedent("""
@@ -192,11 +223,11 @@ def main():
     moves = []
 
     with temp_dir(copy_targets=[args.target]) as tmpdir:
-        command = (args.exec, tmpdir(args.target))  # ("python", "main.py")
+        command = args.executable, tmpdir(args.target)  # ("python", "main.py")
 
         for move in range(args.max_moves):
             # run command
-            stdin, stdout, stderr = run(command, '1\n' + board.out())
+            stdin, stdout, stderr = run(command, '1\n%s' % board.view())
 
             try:
                 # update board initial_state
@@ -224,7 +255,7 @@ def main():
                 })
 
     # dump details about move to file
-    with closing(args.replay) as f:
+    with closing(args.moves) as f:
         json.dump(moves, f, sort_keys=True, indent=2)
 
 
