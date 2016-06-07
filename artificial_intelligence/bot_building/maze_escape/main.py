@@ -232,8 +232,9 @@ class Board(object):
         self.pad(directions)
 
     @staticmethod
-    def rotate(state, direction):
+    def rotate(state, direction, undo=False):
         """
+        :param bool undo:
         :param str state:
         :param str direction:
         :return: Rotated state
@@ -241,6 +242,11 @@ class Board(object):
         """
         state = [list(line) for line in state.split('\n')]
         next_state = None
+
+        undo_map = {'UP': 'UP', 'DOWN': 'DOWN', 'RIGHT': 'LEFT', 'LEFT': 'RIGHT'}
+
+        if undo:
+            direction = undo_map[direction]
 
         if direction == 'UP':
             next_state = state
@@ -324,19 +330,6 @@ class Bot(object):
         matches = defaultdict(list)
         orientation = {key: Board.from_str(Board.rotate(master_str, key)) for key in directions}
 
-        symbol = {
-            'UP': '^',
-            'DOWN': 'v',
-            'LEFT': '<',
-            'RIGHT': '>',
-        }
-        derotate = {
-            'UP': 'UP',
-            'DOWN': 'DOWN',
-            'LEFT': 'RIGHT',
-            'RIGHT': 'LEFT',
-        }
-
         master_fork = orientation['UP'].fork()
 
         for direction, master_board in orientation.items():
@@ -355,10 +348,13 @@ class Bot(object):
 
         for direction, master_board in orientation.items():
             for match in matches[direction]:
-                master_board.set(match, symbol[direction])
+                master_board.set(match, SYMBOL[direction])
 
-        master_boards = [Board.from_str(Board.rotate(str(master_board), derotate[direction]))
-                         for direction, master_board in orientation.items()]
+        master_boards = []
+        for direction, master_board in orientation.items():
+            reoriented_board = Board.rotate(str(master_board), direction, undo=True)
+
+            master_boards.append(Board.from_str(reoriented_board))
 
         for master_board in master_boards:
             for cell in master_board.filter('<>v^', cmp=contains):
@@ -506,6 +502,13 @@ MOVE = {
     'RIGHT': Delta(0, 1),
     'UP': Delta(-1, 0),
     'DOWN': Delta(1, 0),
+}
+
+SYMBOL = {
+    'UP': '^',
+    'DOWN': 'v',
+    'LEFT': '<',
+    'RIGHT': '>',
 }
 
 
