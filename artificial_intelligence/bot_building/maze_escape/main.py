@@ -85,6 +85,16 @@ class Board(object):
                     continue
                 yield cell
 
+    def view(self, coord):
+        state = self.state
+        cells = [
+            [state[coord.y - 1][coord.x - 1], state[coord.y - 1][coord.x + 0], state[coord.y - 1][coord.x + 1]],
+            [state[coord.y + 0][coord.x - 1], state[coord.y + 0][coord.x + 0], state[coord.y + 0][coord.x + 1]],
+            [state[coord.y + 1][coord.x - 1], state[coord.y + 1][coord.x + 0], state[coord.y + 1][coord.x + 1]],
+        ]
+
+        return '\n'.join(''.join(cell.value for cell in row) for row in cells)
+
     def find(self, target, default=RAISE):
         """
         :param str|Coord target:
@@ -307,9 +317,8 @@ class Bot(object):
         # noinspection PyPep8Naming
         BotClass = self.__class__
         board = board or self.board
-        cell = self.cell
         uid = ' '.join((self.cell.value, direction))
-        target = board.find(MOVE[direction].resolve(cell), None)
+        target = board.find(MOVE[direction].resolve(self.cell), None)
 
         if not target or target.value not in 'e-':
             return None
@@ -360,6 +369,37 @@ class Bot(object):
             for cell in master_board.filter('<>v^', cmp=contains):
                 master_fork.set(cell, cell.value)
         return master_fork
+
+    @staticmethod
+    def simulate_move(board, coord, direction):
+        fork = board.fork()
+        fork.set(coord, 'b')
+
+        bot = Bot(fork)
+        try:
+            bot.move(direction)
+        except InvalidTarget:
+            return None
+
+        view = Board.rotate(bot.board.view(fork.find('b')), direction)
+        return view
+
+    @staticmethod
+    def simulate_all_moves(positions_str, master_str):
+        moves = defaultdict(set)
+
+        for orientation, symbol in SYMBOL.items():
+            positions_board = Board.from_str(Board.rotate(positions_str, orientation))
+            master_board = Board.from_str(Board.rotate(master_str, orientation))
+
+            for pos in positions_board.filter(symbol):
+                for direction in MOVE.keys():
+                    view = Bot.simulate_move(master_board, pos, direction)
+                    if not view:
+                        continue
+
+                    moves[direction].add(view)
+        return dict(moves)
 
     def find_path(self, target):
         """

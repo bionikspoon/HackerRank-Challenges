@@ -1,6 +1,7 @@
 # coding=utf-8
 from io import StringIO
 from itertools import chain
+from pprint import pprint
 from textwrap import dedent
 
 import pytest
@@ -386,35 +387,87 @@ def test_board_pad_left(directions, cell, expected):
 
 # Board.rotate
 # ============================================================================
-@pytest.mark.parametrize('direction, expected', [
-    ('UP', dedent("""
-        123
-        456
-        789
-    """)[1:-1]),
-    ('RIGHT', dedent("""
-        369
-        258
-        147
-    """)[1:-1]),
-    ('DOWN', dedent("""
-        987
-        654
-        321
-    """)[1:-1]),
-    ('LEFT', dedent("""
-        741
-        852
-        963
-    """)[1:-1]),
+@pytest.mark.parametrize('direction, undo, expected', [
+    [
+        'UP',
+        False,
+        dedent("""
+            123
+            456
+            789
+        """)[1:-1]
+    ],
+    [
+        'RIGHT',
+        False,
+        dedent("""
+            369
+            258
+            147
+        """)[1:-1]
+    ],
+    [
+        'DOWN',
+        False,
+        dedent("""
+            987
+            654
+            321
+        """)[1:-1]
+    ],
+    [
+        'LEFT',
+        False,
+        dedent("""
+            741
+            852
+            963
+        """)[1:-1]
+    ],
+    [
+        'UP',
+        True,
+        dedent("""
+            123
+            456
+            789
+        """)[1:-1]
+    ],
+    [
+        'LEFT',
+        True,
+        dedent("""
+            369
+            258
+            147
+        """)[1:-1]
+    ],
+    [
+        'DOWN',
+        True,
+        dedent("""
+            987
+            654
+            321
+        """)[1:-1]
+    ],
+    [
+        'RIGHT',
+        True,
+        dedent("""
+            741
+            852
+            963
+        """)[1:-1]
+    ],
 ])
-def test_board_rotate(direction, expected):
+def test_board_rotate(direction, undo, expected):
     state = dedent("""
         123
         456
         789
     """)[1:-1]
-    assert Board.rotate(state, direction) == expected
+    assert Board.rotate(state, direction, undo=undo) == expected
 
 
 @pytest.mark.parametrize('direction, expected', [
@@ -583,6 +636,163 @@ def test_bot_find_path_returns_empty_list():
     assert bot.find_path('e') == []
 
 
+# Bot.find_position
+# ============================================================================
+@pytest.mark.parametrize('state, expected', [
+    [
+        dedent("""
+            2
+            #--
+            #b-
+            #--
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #^v#^v#
+            #--#-v#
+            e----v#
+            #-<<<-#
+            #######
+        """)[1:-1]
+    ],
+    [
+        dedent("""
+            2
+            #--
+            #b-
+            #--
+            #--
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #--#--#
+            #--#-v#
+            e----v#
+            #-<<--#
+            #######
+        """)[1:-1]
+    ],
+    [
+        dedent("""
+            2
+            #--oo
+            #--oo
+            #--##
+            #--b-
+            #----
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #--#--#
+            #--#<-#
+            e-----#
+            #-----#
+            #######
+        """)[1:-1]
+    ],
+])
+def test_bot_find_position(state, expected):
+    master = dedent("""
+        #######
+        #--#--#
+        #--#--#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
+    board = Board.from_input(state)
+    bot = Bot(board)
+
+    positions = bot.find_position(master)
+
+    assert str(positions) == expected
+
+
+# Bot.simulate_move
+# ============================================================================
+@pytest.mark.parametrize('coord, direction, expected', [
+    [
+        Coord(5, 3),
+        'LEFT',
+        dedent("""
+            #--
+            #b-
+            #--
+        """)[1:-1]
+    ],
+    [
+        Coord(5, 3),
+        'RIGHT',
+        dedent("""
+            --#
+            -b#
+            --#
+        """)[1:-1]
+    ],
+    [
+        Coord(5, 3),
+        'DOWN',
+        None
+    ],
+    [
+        Coord(5, 3),
+        'UP',
+        dedent("""
+            -#-
+            -b-
+            ---
+        """)[1:-1]
+    ],
+])
+def test_bot_simulate_move(coord, direction, expected):
+    master = dedent("""
+        #######
+        #--#--#
+        #--#--#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
+    board = Board.from_str(master)
+
+    assert Bot.simulate_move(board, coord, direction) == expected
+
+
+# Bot.simulate_all_moves
+# ============================================================================
+def test_bot_simulate_all_moves():
+    master = dedent("""
+        #######
+        #--#--#
+        #--#--#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
+    positions = dedent("""
+        #######
+        #--#--#
+        #^v#^v#
+        #--#-v#
+        e----v#
+        #-<<<-#
+        #######
+    """)[1:-1]
+
+    expected = {
+        'DOWN': {'--#\n-b#\n--#', '###\n-b#\n--#', '--e\n-b#\n--#', '---\n-b#\n--#'},
+        'RIGHT': {'###\n-b-\n---', '#--\n-b-\n---', '-##\n-b-\n---', '-#-\n-b-\n---', '--#\n-b-\n---'},
+        'UP': {'###\n#b-\n#--', '---\n#b-\n#--', '#--\n#b-\n#--', '##e\n#b-\n#--'}
+    }
+    assert Bot.simulate_all_moves(positions, master) == expected
+
+
 # Cartesian.init
 # ============================================================================
 def test_cartesian_initializes_with_y_and_x():
@@ -682,78 +892,8 @@ def test_delta_resolves_coord_from_start():
 
 # Other
 # ============================================================================
-@pytest.mark.parametrize('state, expected', [
-    [
-        dedent("""
-            2
-            #--
-            #b-
-            #--
-        """)[1:-1],
-        dedent("""
-            #######
-            #--#--#
-            #^v#^v#
-            #--#-v#
-            e----v#
-            #-<<<-#
-            #######
-        """)[1:-1]
-    ],
-    [
-        dedent("""
-            2
-            #--
-            #b-
-            #--
-            #--
-        """)[1:-1],
-        dedent("""
-            #######
-            #--#--#
-            #--#--#
-            #--#-v#
-            e----v#
-            #-<<--#
-            #######
-        """)[1:-1]
-    ],
-    [
-        dedent("""
-            2
-            #--oo
-            #--oo
-            #--##
-            #--b-
-            #----
-        """)[1:-1],
-        dedent("""
-            #######
-            #--#--#
-            #--#--#
-            #--#<-#
-            e-----#
-            #-----#
-            #######
-        """)[1:-1]
-    ],
-])
-def test_bot_find_position(state, expected):
-    master = dedent("""
-        #######
-        #--#--#
-        #--#--#
-        #--#--#
-        e-----#
-        #-----#
-        #######
-    """)[1:-1]
-    board = Board.from_input(state)
-    bot = Bot(board)
 
-    positions = bot.find_position(master)
 
-    assert str(positions) == expected
 
 @pytest.mark.skipif
 def test_bot_next_move():
