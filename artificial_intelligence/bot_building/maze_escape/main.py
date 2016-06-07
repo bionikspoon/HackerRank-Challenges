@@ -370,12 +370,12 @@ class Bot(object):
                 master_fork.set(cell, cell.value)
         return master_fork
 
-    @staticmethod
-    def simulate_move(board, coord, direction):
+    @classmethod
+    def simulate_move(cls, board, coord, direction):
         fork = board.fork()
         fork.set(coord, 'b')
 
-        bot = Bot(fork)
+        bot = cls(fork)
         try:
             bot.move(direction)
         except InvalidTarget:
@@ -384,21 +384,29 @@ class Bot(object):
         view = Board.rotate(bot.board.view(fork.find('b')), direction)
         return view
 
-    @staticmethod
-    def simulate_all_moves(positions_str, master_str):
+    @classmethod
+    def simulate_each_move(cls, board, coord):
+        moves = {}
+        for direction in MOVE.keys():
+            view = Bot.simulate_move(board, coord, direction)
+            if not view:
+                continue
+
+            moves[direction] = view
+        return dict(moves)
+
+    @classmethod
+    def simulate_all_moves(cls, positions_str, master_str):
         moves = defaultdict(set)
 
         for orientation, symbol in SYMBOL.items():
-            positions_board = Board.from_str(Board.rotate(positions_str, orientation))
-            master_board = Board.from_str(Board.rotate(master_str, orientation))
+            positions = Board.from_str(Board.rotate(positions_str, orientation))
+            master = Board.from_str(Board.rotate(master_str, orientation))
 
-            for pos in positions_board.filter(symbol):
-                for direction in MOVE.keys():
-                    view = Bot.simulate_move(master_board, pos, direction)
-                    if not view:
-                        continue
-
+            for pos in positions.filter(symbol):
+                for direction, view in cls.simulate_each_move(master, pos).items():
                     moves[direction].add(view)
+
         return dict(moves)
 
     def find_path(self, target):
