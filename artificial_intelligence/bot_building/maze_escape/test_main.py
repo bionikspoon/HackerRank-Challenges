@@ -5,7 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from .main import Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, Cartesian
+from .main import Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, Cartesian, debug
 
 
 # FIXTURES
@@ -462,11 +462,18 @@ def test_bot_initializes_with_position_and_uid(board1):
     assert bot.cell == Cell(2, 2, 'm')
 
 
-def test_bot_initializes_with_defaults(board1):
+def test_bot_initializes_with_defaults_1(board1):
     bot = Bot(board1)
 
     assert bot.uid is 'b'
     assert bot.cell == Cell(2, 2, 'b')
+
+
+def test_bot_initializes_with_defaults_2(board2):
+    bot = Bot(board2)
+
+    assert bot.uid is 'b'
+    assert bot.cell == Cell(2, 5, 'b')
 
 
 # Bot.fork
@@ -675,7 +682,63 @@ def test_delta_resolves_coord_from_start():
 
 # Other
 # ============================================================================
-def test_bot_find_position():
+@pytest.mark.parametrize('state, expected', [
+    [
+        dedent("""
+            2
+            #--
+            #b-
+            #--
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #^v#^v#
+            #--#-v#
+            e----v#
+            #-<<<-#
+            #######
+        """)[1:-1]
+    ],
+    [
+        dedent("""
+            2
+            #--
+            #b-
+            #--
+            #--
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #--#--#
+            #--#-v#
+            e----v#
+            #-<<--#
+            #######
+        """)[1:-1]
+    ],
+    [
+        dedent("""
+            2
+            #--oo
+            #--oo
+            #--##
+            #--b-
+            #----
+        """)[1:-1],
+        dedent("""
+            #######
+            #--#--#
+            #--#--#
+            #--#<-#
+            e-----#
+            #-----#
+            #######
+        """)[1:-1]
+    ],
+])
+def test_bot_find_position(state, expected):
     master = dedent("""
         #######
         #--#--#
@@ -685,19 +748,14 @@ def test_bot_find_position():
         #-----#
         #######
     """)[1:-1]
-    state = dedent("""
-        2
-        #--
-        #--
-        #--
-        #--
-    """)[1:-1]
     board = Board.from_input(state)
     bot = Bot(board)
 
-    assert bot.find_move_from_position(master) == 'RIGHT'
+    positions = bot.find_position(master)
 
+    assert str(positions) == expected
 
+@pytest.mark.skipif
 def test_bot_next_move():
     master = dedent("""
         #######

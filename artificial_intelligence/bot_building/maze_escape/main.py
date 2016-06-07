@@ -4,7 +4,7 @@ import sys
 from collections import defaultdict
 from copy import deepcopy
 from itertools import chain
-from operator import eq, itemgetter
+from operator import eq, itemgetter, contains
 from textwrap import dedent
 
 RAISE = 'RAISE'
@@ -35,7 +35,8 @@ class Board(object):
         state = '\n'.join(data)
 
         self = cls.from_str(state)
-        self.set(Coord(1, 1), 'b')
+        if not self.find('b', False):
+            self.set(Coord(1, 1), 'b')
         return self
 
     @classmethod
@@ -114,7 +115,7 @@ class Board(object):
         :param str value:
         :param cmp:
         """
-        return (cell for cell in self if cmp(cell.value, value))
+        return (cell for cell in self if cmp(value, cell.value))
 
     def set(self, target, value):
         """
@@ -317,44 +318,52 @@ class Bot(object):
 
         return (bot for bot in (self.fork(direction) for direction in directions) if bot)
 
-    def find_move_from_position(self, master):
-        board = self.board
+    def find_position(self, master_str):
+        directions = ('UP', 'DOWN', 'LEFT', 'RIGHT')
+        pos = self.cell
         matches = defaultdict(list)
-        orientation = {key: Board.from_str(Board.rotate(master, key))
-                       for key in ('UP', 'DOWN', 'LEFT', 'RIGHT')}
+        orientation = {key: Board.from_str(Board.rotate(master_str, key)) for key in directions}
 
-        moves = defaultdict(lambda: 1)
+        symbol = {
+            'UP': '^',
+            'DOWN': 'v',
+            'LEFT': '<',
+            'RIGHT': '>',
+        }
+        derotate = {
+            'UP': 'UP',
+            'DOWN': 'DOWN',
+            'LEFT': 'RIGHT',
+            'RIGHT': 'LEFT',
+        }
 
-        for direction, master in orientation.items():
-            for cell in master.filter('-'):
-                coord = Coord(cell.y - 1, cell.x - 1)
-                for board_cell, master_cell in zip(board, master.iter_box(coord, board.dimensions)):
-                    if board_cell.value in 'bo':
+        master_fork = orientation['UP'].fork()
+
+        for direction, master_board in orientation.items():
+            for cell in master_board.filter('-'):
+                coord = Coord(cell.y - pos.y, cell.x - pos.x)
+                master_box = master_board.iter_box(coord, self.board.dimensions)
+
+                for state_cell, master_cell in zip(self.board, master_box):
+                    if state_cell.value in 'bo':
                         continue
 
-                    if board_cell.value != master_cell.value:
+                    if state_cell.value != master_cell.value:
                         break
-
                 else:
                     matches[direction].append(cell)
 
-        for direction, master in orientation.items():
+        for direction, master_board in orientation.items():
             for match in matches[direction]:
-                board = master.fork()
-                bot = Bot(board, position=match)
-                path = bot.find_path('e')
-                for i, move in enumerate(reversed(path)):
-                    moves[move] += i + (1 + i + len(path)) % 2 + 10 - len(path)
+                master_board.set(match, symbol[direction])
 
-        top_moves = [move for move, count in sorted(moves.items(), key=itemgetter(1), reverse=True)]
-        for top_move in top_moves + ['UP', 'RIGHT', 'DOWN', 'LEFT']:
-            delta = MOVE[top_move]
-            coord = delta.resolve(self.cell)
-            if not self.board.is_valid(coord):
-                continue
-            if self.board.find(coord).value == '#':
-                continue
-            return top_move
+        master_boards = [Board.from_str(Board.rotate(str(master_board), derotate[direction]))
+                         for direction, master_board in orientation.items()]
+
+        for master_board in master_boards:
+            for cell in master_board.filter('<>v^', cmp=contains):
+                master_fork.set(cell, cell.value)
+        return master_fork
 
     def find_path(self, target):
         """
@@ -386,7 +395,7 @@ class Bot(object):
         path = self.find_path(target)
         if path:
             return path.pop(0)
-        return self.find_move_from_position(master)
+        return self.find_position(master)
 
     def __repr__(self):
         return '{0.__class__.__name__}(y={0.cell.y}, x={0.cell.x}, uid={0.uid!r})'.format(self)
@@ -498,6 +507,18 @@ MOVE = {
     'UP': Delta(-1, 0),
     'DOWN': Delta(1, 0),
 }
+
+
+def debug(*args, **kwargs):
+    from pprint import pformat
+
+    kwargs.setdefault('file', sys.stderr)
+
+    if kwargs.pop('pformat', True):
+        print(*map(pformat, args), **kwargs)
+
+    else:
+        print(*args, **kwargs)
 
 
 def load(filename):
