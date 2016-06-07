@@ -1,12 +1,11 @@
 # coding=utf-8
 from io import StringIO
 from itertools import chain
-from pprint import pprint
 from textwrap import dedent
 
 import pytest
 
-from .main import Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, Cartesian, debug
+from .main import Board, Dimensions, Cell, Coord, Delta, InvalidTarget, Bot, Cartesian
 
 
 # FIXTURES
@@ -470,6 +469,21 @@ def test_board_rotate(direction, undo, expected):
     assert Board.rotate(state, direction, undo=undo) == expected
 
 
+# test board rotate with symbols
+def test_board_rotate_with_symbols():
+    state = dedent("""
+        -^-
+        <->
+        -v-
+    """)[1:-1]
+
+    direction = 'UP'
+    undo = False
+    assert Board.rotate(state, direction, undo=undo) == state
+
+    pass
+
+
 @pytest.mark.parametrize('direction, expected', [
     ('UP', dedent("""
         abcd
@@ -793,6 +807,35 @@ def test_bot_simulate_all_moves():
     assert Bot.simulate_all_moves(positions, master) == expected
 
 
+# Bot.simulate_all_moves
+# ============================================================================
+def test_bot_reveal_map():
+    master = dedent("""
+        #######
+        #--#--#
+        #--#--#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
+    state = dedent("""
+        2
+        #--
+        #b-
+        #--
+    """)[1:-1]
+    moves = {
+        'DOWN': {'--#\n-b#\n--#', '###\n-b#\n--#', '--e\n-b#\n--#', '---\n-b#\n--#'},
+        'RIGHT': {'###\n-b-\n---', '#--\n-b-\n---', '-##\n-b-\n---', '-#-\n-b-\n---', '--#\n-b-\n---'},
+        'UP': {'###\n#b-\n#--', '---\n#b-\n#--', '#--\n#b-\n#--', '##e\n#b-\n#--'}
+    }
+    board = Board.from_input(state)
+    bot = Bot(board)
+
+    assert bot.reveal_map(moves, master) == ['RIGHT', 'UP', 'DOWN']
+
+
 # Cartesian.init
 # ============================================================================
 def test_cartesian_initializes_with_y_and_x():
@@ -892,11 +935,7 @@ def test_delta_resolves_coord_from_start():
 
 # Other
 # ============================================================================
-
-
-
-@pytest.mark.skipif
-def test_bot_next_move():
+def test_bot_next_move_1():
     master = dedent("""
         #######
         #--#--#
@@ -913,6 +952,39 @@ def test_bot_next_move():
         #--
     """)[1:-1]
     board = Board.from_input(state)
+    bot = Bot(board)
+
+    assert bot.next_move(master) == 'RIGHT'
+
+
+@pytest.mark.xfail
+def test_bot_next_move_2():
+    master = dedent("""
+        #######
+        #--#--#
+        #--#--#
+        #--#--#
+        e-----#
+        #-----#
+        #######
+    """)[1:-1]
+    state = dedent("""
+        2
+        o---
+        o-b-
+        #--#
+        #--#
+        #--#
+        ####
+    """)[1:-1]
+    data = dedent("""
+        1
+        ---
+        -b-
+        --#
+    """)[1:-1]
+    board = Board.from_input(state)
+    board.merge(Board.from_input(data))
     bot = Bot(board)
 
     assert bot.next_move(master) == 'RIGHT'

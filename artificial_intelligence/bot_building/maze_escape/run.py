@@ -94,9 +94,9 @@ class Board(object):
     def out(self):
         pos_y, pos_x = self.find()
         data = [
-            [self.state[pos_y - 1][pos_x - 1], self.state[pos_y - 1][pos_x - 0], self.state[pos_y - 1][pos_x + 1], ],
-            [self.state[pos_y - 0][pos_x - 1], self.state[pos_y - 0][pos_x - 0], self.state[pos_y - 0][pos_x + 1], ],
-            [self.state[pos_y + 1][pos_x - 1], self.state[pos_y + 1][pos_x - 0], self.state[pos_y + 0][pos_x + 1], ],
+            [self.state[pos_y - 1][pos_x - 1], self.state[pos_y - 1][pos_x + 0], self.state[pos_y - 1][pos_x + 1] ],
+            [self.state[pos_y - 0][pos_x - 1], self.state[pos_y - 0][pos_x + 0], self.state[pos_y - 0][pos_x + 1] ],
+            [self.state[pos_y + 1][pos_x - 1], self.state[pos_y + 1][pos_x + 0], self.state[pos_y + 1][pos_x + 1] ],
         ]
         return '\n'.join(''.join(row) for row in data)
 
@@ -123,7 +123,7 @@ def main():
     init = dedent("""
         #######
         #--#--#
-        #--#-b#
+        #--#b-#
         #--#--#
         e-----#
         #-----#
@@ -141,7 +141,7 @@ def main():
 
         for move in range(200):
             try:
-                stdin, stdout, stderr = run(command, board.out())
+                stdin, stdout, stderr = run(command, '1\n'+ board.out())
                 board.move(stdout)
             except GameWon:
                 break

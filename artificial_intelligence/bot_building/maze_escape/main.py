@@ -5,6 +5,7 @@ from collections import defaultdict
 from copy import deepcopy
 from itertools import chain
 from operator import eq, itemgetter, contains
+from statistics import mean
 from textwrap import dedent
 
 RAISE = 'RAISE'
@@ -52,6 +53,12 @@ class Board(object):
         self.move('b', MOVE['UP'])
 
         return self
+
+    def dump(self, f, move):
+        debug(str(self), pformat=False)
+        f.write(move)
+        f.write('\n')
+        f.write(str(self))
 
     @property
     def state(self):
@@ -370,6 +377,42 @@ class Bot(object):
                 master_fork.set(cell, cell.value)
         return master_fork
 
+    def reveal_map(self, moves, master):
+        # noinspection PyPep8Naming
+        BotClass = self.__class__
+        moves_data = {}
+
+        move_positions = defaultdict(list)
+        for direction, views in moves.items():
+            state = Board.rotate(str(self.board), direction)
+            for view in views:
+                fork = Board.from_str(state)
+                bot = BotClass(fork)
+                bot.move('UP')
+                bot.board.merge(Board.from_str(view))
+
+                positions = bot.find_position(master)
+                cells = list(positions.filter('<>v^', cmp=contains))
+                move_positions[direction].append(cells)
+
+        master_board = Board.from_str(master)
+        target = master_board.find('e')
+        for direction, groups in move_positions.items():
+            move = {
+                'max': max([len(value) for value in groups]),
+                'mean': mean([len(value) for value in groups]),
+                'cells': groups,
+                'distance': mean([cell.get_distance(target) for group in groups for cell in group])
+            }
+            moves_data[direction] = move
+        results = sorted(
+            [(direction, (data['max'], data['mean'], data['distance']))
+             for direction, data in moves_data.items()],
+            key=itemgetter(1)
+        )
+        results = [result for result, _ in results]
+        return results
+
     @classmethod
     def simulate_move(cls, board, coord, direction):
         fork = board.fork()
@@ -403,6 +446,9 @@ class Bot(object):
             positions = Board.from_str(Board.rotate(positions_str, orientation))
             master = Board.from_str(Board.rotate(master_str, orientation))
 
+            debug()
+            debug(str(positions))
+
             for pos in positions.filter(symbol):
                 for direction, view in cls.simulate_each_move(master, pos).items():
                     moves[direction].add(view)
@@ -434,12 +480,18 @@ class Bot(object):
         path_finder = registry.get(target)
         return path_finder.uid.split(' ')[1:]
 
-    def next_move(self, master, target='e'):
+    def next_move(self, master_str, target='e'):
         """Get next move"""
         path = self.find_path(target)
         if path:
             return path.pop(0)
-        return self.find_position(master)
+
+        position = self.find_position(master_str)
+        debug('position')
+        debug(str(position))
+        move_positions = Bot.simulate_all_moves(str(position), master_str)
+        moves = self.reveal_map(move_positions, master_str)
+        return moves[0]
 
     def __repr__(self):
         return '{0.__class__.__name__}(y={0.cell.y}, x={0.cell.x}, uid={0.uid!r})'.format(self)
@@ -565,11 +617,16 @@ def debug(*args, **kwargs):
 
     kwargs.setdefault('file', sys.stderr)
 
-    if kwargs.pop('pformat', True):
+    if kwargs.pop('pformat', False):
         print(*map(pformat, args), **kwargs)
 
     else:
         print(*args, **kwargs)
+
+
+def debugf(*args, **kwargs):
+    kwargs.setdefault('pformat', True)
+    debug(*args, **kwargs)
 
 
 def load(filename):
@@ -580,9 +637,9 @@ def load(filename):
         return Board.load(f)
 
 
-def set_next_state(filename, state):
+def dump(filename, board, next_move):
     with open(filename, 'w') as f:
-        f.write(state)
+        board.dump(f, next_move)
 
 
 def main():
@@ -608,7 +665,7 @@ def main():
     bot = Bot(board)
     next_move = bot.next_move(master)
 
-    set_next_state(filename, '\n'.join((next_move, '1', str(board))))
+    dump(filename, board, next_move)
 
     print(next_move)
 
