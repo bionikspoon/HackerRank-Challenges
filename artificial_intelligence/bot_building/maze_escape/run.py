@@ -230,7 +230,7 @@ def main():
             stdin, stdout, stderr = run(command, '1\n%s' % board.view())
 
             try:
-                # update board initial_state
+                # update boards state
                 board.move(stdout)
             except GameWon:
                 break
